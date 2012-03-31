@@ -1,0 +1,2628 @@
+------------------------------------------------------------------------------------------------------------------
+Title : Writeup for Project 3(Virtual Memory and Basic Networking), Fall 2011
+------------------------------------------------------------------------------------------------------------------
+---------------------------
+Date Submitted : 10/30/2011
+---------------------------
+-------------------------------------------------------------------------------------------------
+ Group Num 51:		Name			Email			Student ID
+-------------------------------------------------------------------------------------------------
+			Aniket Zamwar		zamwar@usc.edu		1488561698
+			Abhishek Prabhudesai	prabhude@usc.edu	4722594988 
+			Javed Lalani		jlalani@usc.edu		6606908318 
+--------------------------------------------------------------------------------------------------
+
+                                      
+***********************************************************************************************************************************************************
+I. Requirements:
+***********************************************************************************************************************************************************
+-------------------------------------------------
+The three parts of the project are as under:
+-------------------------------------------------
+------------------------------------------------------------
+Part 1) Implement software-management of the TLB
+------------------------------------------------------------
+In Part 1 we need to implement TLB logic for memory management.
+Until project 2 we had implemented Page Table and virtual memory as well as virtual memory to physical memrory translation, with a assumption of infinite physical memory.
+But in this project there is a limitation of 32 pages physical memory and therefore there will be many swappings of pages using caching. Caching is used in the project for 2 purposes: 
+	+ One is software-managed translation lookaside buffer (TLB) is used as a cache for page tables to provide the illusion of fast access to virtual page translation over a large address address space.
+	+ Second is use of memory as a cache for disk, to provide the abstraction of an (almost) unlimited virtual memory size, with performance close to that provided by physical memory.
+
++ Concept:
+Why we need TLB ?
+The hardware knows nothing about page Table in this assignment, but the hardware now only understands the software loaded cache of page table entries called "Translation Lookaside buffer".
+
+This part is implemented in three steps
+	a) Preload everything in Physical Memory and update Page Table. On TLB miss, update TLB from page Table
+	b) Preload everything in Physical Memory, update Page Table and IPT. On a TLB miss, update TLB from IPT. IPT should provide virtual page of the correct process
+	c) Do not pre-load anything in Memory. On a Page Fault, search in IPT. It not found in IPT, get a free physical page, load the virtual page in it and update IPT, Page Table and TLB
+
+------------------------------------------------------------
+Part 2)Implement virtual memory
+------------------------------------------------------------
+Part 2 is an extension to part 1, as in part 1 we have infinite memory, we never run out of memory and so all the pages are preloaded.
+But, in part 2 here we have limited physical memory, the page is loaded on demand.
+Everytime a page is not found in TLB, a page fault needs to be handled in exception.cc where we need to follow a certain procedure/sequence to load the page required.
+
+
+There is a three steps process we follow for the development of Part 1:
+	a) Preload everything in Physical Memory and update Page Table. On TLB miss, update TLB from page Table
+	b) Preload everything in Physical Memory, update Page Table and IPT. On a TLB miss, update TLB from IPT. IPT should provide virtual page of the correct process
+	c) Do not pre-load anything in Memory. On a Page Fault, search in IPT. It not found in IPT, get a free physical page, load the virtual page in it and update IPT, Page Table and TLB
+
+------------------------------------------------------------------------------------------------------------------------------
+Part 3)To implement remote procedure calls for the Lock and Condition Variable system calls that you implemented in project 2
+------------------------------------------------------------------------------------------------------------------------------
+For networking/distributed systems we need to implement network system calls.
+This is a client server model where, client requests server for any resource it needs and the server processes the requests, checks the request for validation purpose and then provide the access id for each of the resource requested by client.
+
+In this part we do not physically create the lock/CV/MV at server, as the threads are running on different computer system and also the address space allocated is on different machines. We create an abstraction of Locks, MVs and CVs. The client sends a request to server and waits on receive.
+If the server wants client to wait, the server puts the message in a message queue and delays the reply send message to the requester client.
+Server machine is a single threaded system where server thread never waits and runs in a infinite while loop.
+
+System Calls need to be implemented in client machines in such a way that every request client machine's user program makes the system call sends the request to server.
+The following system calls have been implemented:
+System Calls to be implemented are:-
+	1)Create Lock
+	2)Acquire Lock
+	3)Release Lock
+	4)Delete Lock
+	5)Create Condition
+	6)Wait Condition
+	7)Signal Condition
+	8)Broadcast Condition
+	9)Delete Condition
+	10)Create Monitor
+	11)Set Value
+	12)Get Value
+	13)Delete Monitor
+
+***********************************************************************************************************************************************************
+II. Assumptions:
+***********************************************************************************************************************************************************
+	
+	* Monitor variables are assumed to be integer arrays eith maximum size 100.
+	* Server is assumed to run at machine ID 0.	
+	* Clients and server receive/send at MailBox number 0.
+	* client machines are assigned machine ID as a number 1 or more
+	* Server never stops and always waits for client to request.
+	* Default Page Replacement Policy is FIFO
+	* -PRAND is the commandline argument for Random page replacement policy.
+	* Our network also uses TLB for paging.
+	* Run Server:   nachos -m 0 -s
+	* Run Client: nachos -m [1-10] -x ../test/[userprogramName] [-PRAND/-PFIFO]
+		[1-10] : this means anything between 1 to 10			
+	
+	* The MV/CV/Lock names can only be alphanumeric.
+	* The maximum of 50 MV/CV/Lock each can be created on server 
+	* The maximum size of MV/CV/Lock names is 31 chars
+	* Server can provide maximum 50 of each Lock/MV/CV resources to its clients.
+	* Client requesting the resource with same name is considered as shared resource and is shared between the clients.
+
+***********************************************************************************************************************************************************
+III. Design:
+***********************************************************************************************************************************************************
+----------------------------------------------------------------------------------------------------------------------
+				Handle Page Fault
+----------------------------------------------------------------------------------------------------------------------
+
+Description:
+
+This Function is called whenever the required page is not found to be in the TLB.
+The function then searches the IPT for the required page. This is done by matching the processs id of the thread
+who wants the page. When the page is found it is loaded into the TLB.
+
+Design:
+	//Acquire IPT Lock
+	//Search the IPT for the required page. If page found and it is not in use then use it
+	for(unsigned int i = 0; i < NumPhysPages ; i++){
+		if(ipt[i].valid == true && ipt[i].virtualPage == vpn && ipt[i].processId == currentThread -> pID && ipt[i].use == false){
+			physicalPage = i;				// Found the page in the IPT
+			ipt[physicalPage].use = true;
+			break;
+		}
+	}
+	//Release the IPT Lock
+	// If page is not found in the IPT , it means that its an IPT Miss
+	// Then call handleIPTMiss function
+	//If the page selected from the IPT is in TLB and is dirty then propagate the dirty bit to the IPT
+	//Set Interrupts OFF
+	if(machine -> tlb[currentTLBLocation].valid == true && machine -> tlb[currentTLBLocation].dirty == true)
+		ipt[machine -> tlb[currentTLBLocation].physicalPage].dirty = machine -> tlb[currentTLBLocation].dirty;
+		
+	//Load the contents of the IPT in the TLB
+	machine -> tlb[currentTLBLocation].virtualPage = ipt[physicalPage].virtualPage;		
+	machine -> tlb[currentTLBLocation].physicalPage = physicalPage;						// Update the TLB with the entries from the IPT
+	machine -> tlb[currentTLBLocation].valid = true;
+	machine -> tlb[currentTLBLocation].use = ipt[physicalPage].use;
+	machine -> tlb[currentTLBLocation].readOnly = ipt[physicalPage].readOnly; 
+	currentTLBLocation = (currentTLBLocation +1) % TLBSize;
+	//Restore Interrupt
+
+	// Acquire IPT Lock
+	//set the use bit for the selected page to false so that any other thread can use it
+	ipt[physicalPage].use = false;
+	//Release IPT Lock
+----------------------------------------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------------------------------------
+				HandleIPTMiss
+----------------------------------------------------------------------------------------------------------------------
+
+Description:
+
+This Function is called when the required page is not found in the IPT. The function then does a Find on the physical memory
+bitmap. This will return a page if the memory is not full. Once the page is found, the contents for the virtual page are loaded into 
+the physical page either from the executable or the swap file.
+
+Design:
+
+	// Acquire pagetable lock
+	//Check to see if the vpn is already loaded into the memory by some other thread
+	// If yes then return and search the IPT again
+	if(currentThread -> space -> pageTable[virtualpn].valid == true)		
+	// This is to check if the page for which I got an IPT Miss has been loaded into the memory by some other thread
+	{																		
+		// If it is loaded then I have to search the IPT again for my page
+		// Release page table lock
+		return -1;
+	}
+	else
+	{
+		//Release page table lock
+	}
+
+	//Acquire pysical memory bitmap lock
+	freePhysicalPage = physicalPageBitMap -> Find();		// Find a free physical page
+	if(freePhysicalPage != -1)
+		ipt[freePhysicalPage].use = true;
+	//Release pysical memory bitmap lock
+	// If page not found from the main memory then go to Handle Memory Full function to evict a page
+	// If page found from the physical memory and the page replacement policy is FIFO then add the page to FIFO queue
+	addFIFOPage(freePhysicalPage);
+	
+	//Acquire IPT Lock
+	//Acquire page table lock
+	//Check the location of the selected page from the page table - it can be on disk, in swap file or on stack
+	// Check if the page is in the executable
+	if(currentThread -> space -> pageTable[virtualpn].diskLocation == 1){
+	currentThread -> space -> executable->ReadAt(&(machine->mainMemory[freePhysicalPage * PageSize]),PageSize , currentThread -> space -> pageTable[virtualpn].byteOffset);
+	}
+	if(currentThread -> space -> pageTable[virtualpn].diskLocation == 3)		// Check if the page is in the swap file
+	{
+		swapFile->ReadAt(&(machine->mainMemory[freePhysicalPage * PageSize]),PageSize , currentThread -> space -> pageTable[virtualpn].swapByteOffset);
+		ipt[freePhysicalPage].dirty = false;
+	}
+	if(currentThread -> space -> pageTable[virtualpn].diskLocation == 2)		// Check if the page is not on disk (stack or uninit)
+		ipt[freePhysicalPage].dirty = false;
+		
+	//Change the pagetable to reflect that the page is now in the memory
+	
+	currentThread -> space -> pageTable[virtualpn].valid = true;					// Update the page table entry for the physical page
+	currentThread -> space -> pageTable[virtualpn].physicalPage = freePhysicalPage;	
+	ipt[freePhysicalPage].virtualPage = virtualpn;									// Update the IPT with the selected physical page
+	ipt[freePhysicalPage].physicalPage = freePhysicalPage;							// along with the other details
+	ipt[freePhysicalPage].valid = true;
+	ipt[freePhysicalPage].readOnly = false;
+	ipt[freePhysicalPage].processId = currentThread -> pID;							// Store the process ID to which the page has been given to
+	//Release page table lock
+	//Release IPT lock
+
+	//return the physical page to handle page fault function
+----------------------------------------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------------------------------------
+				HandleMemoryFull
+----------------------------------------------------------------------------------------------------------------------
+
+Description:
+
+This function is called when the memory is full and there is no free page to allocate. This function then selects a page for eviction.
+The eviction can be done wither randomly or in a FIFO fashion. The page that is not in use currently is selected.
+If the selected page is dirty then it gets written to the swap file.
+
+Design:
+
+//Acquire IPT lock
+	//Search for a page to evict - depending on the page replacement policy
+	if(pageReplacementPolicy == 1)				// Check if the page replacement policy is RANDOM
+	{
+		while(pageToEvict == -1)
+		{
+			pageToEvict = rand() % 32;			// Select a random page between 0 - 31
+			if(ipt[pageToEvict].use == true || ipt[pageToEvict].valid == false)
+			{
+				pageToEvict = -1;				// If in use then so the page selection again
+				continue;
+			}
+			else
+			{
+				ipt[pageToEvict].use = true;	// If not in use then set use bit to true to reserve it for use
+				break;
+			}
+		}
+	}
+	else 			// By default the policy is FIFO
+	{
+		pageToEvict = getFIFOPage();						// Get the page from the FIFO Queue
+		ipt[pageToEvict].use = true;						// reserve it for use
+		addFIFOPage(pageToEvict);							
+	}
+
+	// Trun OFF the Interrupts
+	//Search the TLB to see if the page selected for eviction is in it. If yes then propagate the dirty bit to the IPT
+	for(int i=0; i < TLBSize; i++){
+		if(machine -> tlb[i].physicalPage == pageToEvict && machine -> tlb[i].valid == true)		
+		// Check if the page selected for eviction is in TLB and has dirty bit set to true
+		{
+			//Propagate the dirty bit to the IPT
+			ipt[pageToEvict].dirty = machine -> tlb[i].dirty;			//propagate the dirty bit to IPT
+			machine -> tlb[i].valid = false;							// Invalidate the TLB entry
+			break;
+		}
+	}
+	//Turn ON the interrupts
+
+	//Acquire the page table lock
+	//Release the IPT lock
+	//Acquire swapfile lock
+	//If the page is dirty then copy it to he swapfile and update the page table for the swapfile location
+	if(dirtyFlag == 1)
+	{
+		int mySwapFileLocation = swapFileBitMap -> Find();
+		swapFile -> WriteAt(&(machine->mainMemory[((pageToEvict) * PageSize)]), PageSize, mySwapFileLocation * PageSize);		
+		// Write the page to swap file as it is dirty
+		tempSpace -> pageTable[myvpn].swapByteOffset = mySwapFileLocation * PageSize;		
+		// Update the byte offset for the page in the page table of the current process
+		tempSpace -> pageTable[myvpn].diskLocation = 3;				// To indicate that the location of the page is in the swap file
+	}
+	tempSpace -> pageTable[myvpn].valid = false;
+	//Release swapfile lock
+	//Release page table lock
+	//return the physical page to handle ITP Miss function
+
+----------------------------------------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------------------------------------
+			Page Table Class
+----------------------------------------------------------------------------------------------------------------------
+The page table requires new members and hence we created a new page table class : pageTableEntry
+
+The class is as below:
+
+class pageTableEntry: public TranslationEntry
+{
+	public:
+	int diskLocation;	// determines the location of the page : executable (1), not on disk (2), swap file (3)
+	unsigned int byteOffset;	// Determines the byte offset in the executable
+	unsigned int swapByteOffset;	// Determines the byte offset in the swap file
+	pageTableEntry();	// Constructor
+	~pageTableEntry();	// Destructor
+}; 
+
+It inherits the TranslationEbtry class. It adds three new fields: diskLocation, byteOffset and swapByteOffset
+
+----------------------------------------------------------------------------------------------------------------------
+			IPT Class
+----------------------------------------------------------------------------------------------------------------------
+A new class was created for the IPT Entries called : IPTEntry
+
+The class is as below:
+
+class IPTEntry: public TranslationEntry
+{
+	public:
+	int processId;
+	IPTEntry();
+	~IPTEntry();
+};
+
+It inherits the TranslationEntry class and adds a new field for the process id.
+
+----------------------------------------------------------------------------------------------------------------------
+--------------------------------------
+Part - 3
+--------------------------------------
+Part 3: Networking: Implementing RPC
+
+In this we implement new system calls at client system where the system call handler calls the system call and sends a request to server with proper message.
+We have designed a format of Message for sending the message to Server which tells server about the request.
+
+We have designated alphabets 'a' to 'm' to each system call to be implemented at server. This alphabet is the first byte in the message and trailing to this alphabet is the furthur information.
+The Message Formats for each system call is as under which is prepared at client and sent to server:
+
+1.  Create Lock:  	Message:	'a' + Lock Name
+2.  AcquireLock:  	Message: 	'b' + Lock ID
+3.  ReleaseLock:  	Message: 	'c' + Lock ID
+4.  DeleteLock:		Message:	'd' + Lock ID 
+5.  Create CV:		Message:	'e' + CV Name
+6.  Wait:			Message:	'f' + CV ID + ',' + Lock ID
+7.  Signal:			Message:	'g' + CV ID + ',' + Lock ID
+8.  Broadcast:		Message:	'h' + CV ID + ',' + Lock ID
+9.  Delete CV:		Message:	'i' + CV ID
+10. Create MV:		Message:	'j' + MV Name + ',' +  size of MV
+11. Set Value:		Message:	'k' + Mv ID + ',' + index + ',' + value
+12. Get Value:		Message:	'l' + Mv ID + ',' + index
+13. Delete MV:		Message:	'm' + Mv ID
+
+Description: The server parses the message received from the client which must adhere to the format mentioned above. The server checks ths first byte of character and then calls the specific system call and provides it with the furthur message contents.
+The system calls perform proper validations on the message contents and then 'may' provide the client with a reply.
+In our system, as client and server threads are completely on different systems, no scheduler or thread sleep  comes into picture. But, the client goes into wait when it calles postOffice -> receive() call, and is waiting until it gets some reply from the server. 
+
++ Structures used at Server machine for providing the client with the resources.
+-----------------------------------------
+int serverLockIDCounter = 1;
+struct Serverlock{
+	char* lockName;
+	bool isToBeDeleted;
+	List* messageQueue;
+	List* destMachineIDQueue;
+	LockStatus lockStatus;
+	int lockOwner;
+	int useCount;
+};
+Serverlock serverLockTable[MAX_SERVER_LOCKS];
+
+/*
+*	Condition Variables Structure and Table
+*/
+int serverCVIDCounter = 1;
+struct ServerCV{
+	char *cvName;
+	bool isToBeDeleted;
+	List *messageWaitQueue;
+	List *destMachineIDQueue;
+	int waitLock;
+	int waitQueueCount;
+	int useCount;
+};
+ServerCV serverCVTable[MAX_SERVER_CV];
+
+/*
+*	Monitor Variables Structure and Table
+*/
+int serverMVIDCounter = 1;
+struct ServerMV{
+	char* mvName;
+	int* mv;
+	int size;
+	int useCount;
+};
+ServerMV serverMVTable[MAX_SERVER_MV];
+-----------------------------------------
++ ALGORITHMS:
+
+A. Create Lock:
+	
+	Start CreateLock (char *LockName)
+			Validate LockName
+			for(int i=1; i < serverLockIDCounter; i++){
+				if(serverLockTable[i].lockName != NULL){
+					if(strcmp(serverLockTable[i].lockName,LockName) == 0){
+						sprintf(ack,"%d",i);
+						printf("\nLock Found already Created");
+						serverLockTable[i].useCount++;
+						return;
+					}
+				}
+			}
+			if(serverLockIDCounter >= MAX_SERVER_LOCKS){
+				strcpy(ack,"-1Lock Full\0");
+				return;
+			}
+			serverLockTable[serverLockIDCounter].lockName = new char[31];
+			strcpy(serverLockTable[serverLockIDCounter].lockName,LockName);
+			serverLockTable[serverLockIDCounter].isToBeDeleted = false;
+			serverLockTable[serverLockIDCounter].lockStatus = FREE;
+			serverLockTable[serverLockIDCounter].lockOwner = 0;
+			serverLockTable[serverLockIDCounter].useCount = 1;
+			serverLockTable[serverLockIDCounter].messageQueue = new List;
+			serverLockTable[serverLockIDCounter].destMachineIDQueue = new List;
+			sprintf(ack,"%d",serverLockIDCounter);
+			printf("\n%s Length: %d\n",ack,strlen(ack));
+			serverLockIDCounter++;
+			return;
+	End CreateLock
+
+B. Acquire Lock
+
+	Start AcquireLock (int machineId, int lock_ID)
+			Validate Lock ID
+			Validate Machine ID
+			if(serverLockTable[lock_ID].lockOwner == machineId){
+				strcpy(ack,"1\0");
+				return 1;
+			}
+			if(serverLockTable[lock_ID].lockStatus == FREE){
+				serverLockTable[lock_ID].lockStatus = BUSY;
+				serverLockTable[lock_ID].lockOwner = machineId;
+			}
+			else{
+				message = new char[50];
+				strcpy(message,"1\0");
+				toAddr = new int;
+				*toAddr = machineId;
+				serverLockTable[lock_ID].messageQueue -> Append((void *)message);			// Add the message to the wait queue if the lock is not available
+				serverLockTable[lock_ID].destMachineIDQueue -> Append((void *)toAddr);
+				printf("Add %d to wait queue\n",*toAddr);
+				return 0;
+			}
+			strcpy(ack,"1\0");
+			return 1;
+	End AcquireLock 
+
+C: Release Lock:
+
+	Start ReleaseLock
+			Validate Machine ID and Lock ID
+			if(serverLockTable[lock_ID].lockOwner != machineId)
+				strcpy(ack,"-1NotLockOwner\0");
+				return 1;
+			end if
+			if(!(serverLockTable[lock_ID].messageQueue -> IsEmpty())){
+				int *machIdPtr;
+				char *messPtr;
+				machIdPtr = (int *)serverLockTable[lock_ID].destMachineIDQueue -> Remove();		// Remove the machine id from the wait queue
+				messPtr = (char *)serverLockTable[lock_ID].messageQueue -> Remove();			// Remove the message from the message wait queue
+				serverLockTable[lock_ID].lockOwner = *machIdPtr;
+				printf("\nFound %d in Lock wait queue\n",*machIdPtr);
+				sendMessage(*machIdPtr,messPtr);
+			}
+			else{
+				serverLockTable[lock_ID].lockStatus = FREE;
+				serverLockTable[lock_ID].lockOwner = 0;
+			}
+			strcpy(ack,"1\0");
+			return 1;
+	End ReleaseLock
+
+D: Delete Lock:
+		
+		Start DeleteLock(lockID)
+			Validate Lock ID
+			if(!(serverLockTable[lockId].messageQueue -> IsEmpty())){
+				serverLockTable[lockId].isToBeDeleted = true;
+				strcpy(ack,"1\0");
+				return 1;
+			}
+
+			serverLockTable[lockId].useCount--;
+			if(serverLockTable[lockId].useCount == 0){
+				serverLockTable[lockId].lockName = NULL;
+				serverLockTable[lockId].lockOwner = 0;
+				delete serverLockTable[lockId].messageQueue;
+				delete serverLockTable[lockId].destMachineIDQueue;
+			}
+			strcpy(ack,"1\0");
+			return 1;
+		End DeleteLock
+		
+E: Create CV:
+		
+		Start CreateCV (CVName)
+			Validate CV Name
+			for(int i=1; i < serverCVIDCounter; i++){
+				if(serverCVTable[i].cvName != NULL){
+					if(strcmp(serverCVTable[i].cvName,CVName) == 0){
+					sprintf(ack,"%d",i);
+					serverCVTable[i].useCount++;
+					return;
+					}
+				}
+			}
+			if(serverCVIDCounter >= MAX_SERVER_CV){
+				strcpy(ack,"-1Lock Full\0");
+				return;
+			}
+
+			serverCVTable[serverCVIDCounter].cvName = new char[31];
+			strcpy(serverCVTable[serverCVIDCounter].cvName,CVName);
+			serverCVTable[serverCVIDCounter].isToBeDeleted = false;
+			serverCVTable[serverCVIDCounter].messageWaitQueue = new List;
+			serverCVTable[serverCVIDCounter].destMachineIDQueue = new List;
+			serverCVTable[serverCVIDCounter].waitLock = 0;
+			serverCVTable[serverCVIDCounter].useCount = 1;
+			serverCVTable[serverCVIDCounter].waitQueueCount = 0;
+			sprintf(ack,"%d",serverCVIDCounter);
+			printf("\n%s Length: %d\n",ack,strlen(ack));
+			serverCVIDCounter++;
+			return;
+		End CreateCV
+		
+F: Wait RPC Call
+		
+			Start WaitServer (LockID,CVID)
+				Validate LockID and CVID
+				//Check if current thread has acquired the lock
+				if(!(isHeldByCurrentThread(machineId,lockid)))
+				{
+					printf("%d does not has the lock %d", machineId,lockid);
+					strcpy(ack,"-1NotLockOwner\0");
+					return 1;
+				}
+				printf("\nCheck serverCVTable[cvid].waitLock %d, cvid %d \n",serverCVTable[cvid].waitLock,cvid);
+				//First Thread with conditionLock calling wait
+				if(serverCVTable[cvid].waitLock == 0)
+					serverCVTable[cvid].waitLock = lockid;
+
+				//waitLock and conditionLock do not match
+				if(serverCVTable[cvid].waitLock != lockid){
+					printf("\n%d cannot wait for condition as condition Lock is not same as waitLock \n",machineId);
+					//enable interrupts
+					strcpy(ack,"-1InvalidLock\0");
+					return 1;
+				}
+				printf("\nCheck serverCVTable[cvid].waitLock %d, cvid %d \n",serverCVTable[cvid].waitLock,cvid);
+				ReleaseLock(machineId,lockid);
+
+				// add the current thread to condition variable's wait queue
+				message = new char[50];
+				strcpy(message,"1\0");
+				toAddr = new int;
+				*toAddr = machineId;
+				
+				serverCVTable[cvid].messageWaitQueue -> Append((void *)message); // Add the message to the wait queue
+				serverCVTable[cvid].destMachineIDQueue -> Append((void *)toAddr); // Add the machine id to the wait queue
+				return 0;					
+			End Wait
+
+G: Signal Server
+		
+		Start Signal(LockId, CVID)
+			Validate LockId and CVId
+			//Check if current thread has acquired the lock
+			if(!(isHeldByCurrentThread(machineId,lockid)))
+			{
+				printf("%d does not has the lock %d", machineId,lockid);
+				strcpy(ack,"-1NotLockOwner\0");
+				return 1;
+			}
+			if(serverCVTable[cvid].messageWaitQueue -> 	IsEmpty()){
+				printf("%d signalled using %d, but no client waiting", machineId,lockid);
+				strcpy(ack,"-1No client waiting");
+				return 1;
+			}
+
+			//waitLock and conditionLock do not match
+			if(serverCVTable[cvid].waitLock != lockid){
+				printf("\n%d cannot wait for condition as condition Lock is not same as waitLock \n",machineId);
+				strcpy(ack,"-1InvalidCVLock\0");
+				return 1;
+			}
+			// Remove a message from the wait queue
+			serverCVTable[cvid].messageWaitQueue -> Remove();
+			
+			if(serverCVTable[cvid].messageWaitQueue -> 	IsEmpty()){
+				serverCVTable[cvid].waitLock = 0;
+			}
+			// Try to acquire the lock which is used for the signalling
+			AcquireLock(*((int *)serverCVTable[cvid].destMachineIDQueue -> Remove()),lockid);				
+			strcpy(ack,"1\0");
+			return 1;
+		
+		End Signal
+		
+H: Broadcast:
+
+		Start Broadcast(CVId, LockId)
+			Validate LockID and CVid
+			//Check if current thread has acquired the lock
+			if(!(isHeldByCurrentThread(machineId,lockid))){
+				printf("%d does not has the lock %d", machineId,lockid);
+				strcpy(ack,"-1NotLockOwner\0");
+				return 1;
+			}
+			//waitLock and conditionLock do not match
+			if(serverCVTable[cvid].waitLock != lockid){
+				printf("\n%d cannot wait for condition as condition Lock is not same as waitLock \n",machineId);
+				strcpy(ack,"-1InvalidCVLock\0");
+				return 1;
+			}
+			while(!(serverCVTable[cvid].messageWaitQueue -> IsEmpty())){
+				SignalServerCV(machineId,mess);
+			}
+			return 1;
+		End Broadcast
+
+I: Delete CV
+
+		Start DeleteCV(CVID)
+			Validate CVID
+			if(!(serverCVTable[cvId].messageWaitQueue -> IsEmpty()))
+			{
+				serverCVTable[cvId].isToBeDeleted = true;
+				strcpy(ack,"1\0");
+				return 1;
+			}
+			serverCVTable[cvId].useCount--;
+
+			if(serverCVTable[cvId].useCount == 0)
+			{
+				serverCVTable[cvId].cvName = NULL;
+				serverCVTable[cvId].waitLock = -1;
+				serverCVTable[cvId].waitQueueCount = -1;
+				delete serverCVTable[cvId].messageWaitQueue;
+			}
+			strcpy(ack,"1\0");
+			return 1;
+		End DeleteCV
+		
+J: Create Monitor Variable:
+
+		Start CreateMV(MVName)
+			Validate MVName
+			for(int i=1; i < serverMVIDCounter; i++){
+				if(serverMVTable[i].mvName != NULL){
+					if(strcmp(serverMVTable[i].mvName,str1) == 0){
+						sprintf(ack,"%d",i);
+						serverMVTable[i].useCount++;
+						return;
+					}
+				}
+			}
+			if(serverMVIDCounter >= MAX_SERVER_MV){
+				strcpy(ack,"-1MV Full\0");
+				return;
+			}
+
+			while(*mess != '\0'){
+				if(*mess == '\n' || *mess == '\t' || index == 3 || (!(*mess >= 48 && *mess <= 57))){
+					strcpy(ack,"-1MessageFormatInvalid\0");		//Check the validity of the argument # 2 - size of the monitor varialble
+					return;
+				}
+				*(str2 + index) = *mess;
+				index++;
+				mess++;
+			}
+			*(str2 + index)='\0';
+			if(atoi(str2) > 100){
+				strcpy(ack,"-1MVSizeTooLarge\0");					//Check the validity of the argument # 1 - monitor variable name
+				return;
+			}
+			serverMVTable[serverMVIDCounter].mvName = new char[31];
+			strcpy(serverMVTable[serverMVIDCounter].mvName,str1);
+			serverMVTable[serverMVIDCounter].size = atoi(str2);
+			serverMVTable[serverMVIDCounter].mv = new int[atoi(str2)];
+			serverMVTable[serverMVIDCounter].useCount = 1;
+			sprintf(ack,"%d",serverMVIDCounter);
+			serverMVIDCounter++;
+			return;
+		End CreateMV
+
+K:	SetValue of MV
+
+		Start SetValue(MVId, Index, Value)
+			Validate MVID, Index, Value
+			Store Value in MV[MVID].mv[Index]
+		End SetValue
+
+L: GetValue of MV:
+
+		Start GetValue(MVId, Index)
+			Validate MVID, Index
+			Return Value in MV[MVID].mv[Index]
+		End SetValue
+
+M: Delete Monitor Variable:
+		
+		Start Delete MV(MvId)
+			Validate MVId
+			Delete MV from MV Table Structure
+		End Delete MV
+		
+***********************************************************************************************************************************************************
+IV. Implementation:
+***********************************************************************************************************************************************************
+
++ Files Modified
+	- nachos-csci402/code/Makefile.common
+	- nachos-csci402/code/threads/main.cc
+	- nachos-csci402/code/network/nettest.cc
+	- nachos-csci402/code/userprog/exception.cc
+	- nachos-csci402/code/userprog/syscall.h
+	- nachos-csci402/code/test/start.s
+	- nachos-csci402/code/network/Makefile
+	- nachos-csci402/code/threads/system.cc
+	- nachos-csci402/code/threads/system.h
+	- nachos-csci402/code/userprog/addrspace.cc
+	- nachos-csci402/code/userprog/addrspace.h
+
++ Files added
+	+ Test Cases Added to test directory
+		- nachos-csci402/code/test/rpcTest1.c
+		- nachos-csci402/code/test/rpcTest2.c
+		- nachos-csci402/code/test/rpcTest3.c
+		- nachos-csci402/code/test/rpcTest4.c
+		- nachos-csci402/code/test/rpcTest5.c
+		- nachos-csci402/code/test/rpcLockTest.c
+		- nachos-csci402/code/test/rpcMVTest2_1.c
+		- nachos-csci402/code/test/rpcMVTest2_2.c
+		- nachos-csci402/code/test/rpcMVTest3_1.c
+		- nachos-csci402/code/test/rpcMVTest3_2.c
+		- nachos-csci402/code/test/negative_Test_1.c
+		- nachos-csci402/code/test/negative_Test_2.c
+		- nachos-csci402/code/test/negative_Test_3.c
+		- nachos-csci402/code/test/negative_Test_4_1.c
+		- nachos-csci402/code/test/negative_Test_4_2.c
+		- nachos-csci402/code/test/negative_Test_5.c
+		- nachos-csci402/code/test/negative_Test_6.c
+	
+	+ Files Added for Part 1 & 2 of the project
+		- nachos-csci402/code/threads/pagetable.cc
+		- nachos-csci402/code/threads/pagetable.h
+		- nachos-csci402/code/threads/ipt.cc
+		- nachos-csci402/code/threads/ipt.h
+		
++ Data Structures added, and the file they were added to.
+
+	+ Added to pagetable.h
+		class pageTableEntry: public TranslationEntry
+		{
+			public:
+			int diskLocation;	// determines the location of the page : executable (1), not on disk (2), swap file (3)
+			unsigned int byteOffset;	// Determines the byte offset in the executable
+			unsigned int swapByteOffset;	// Determines the byte offset in the swap file
+			pageTableEntry();	// Constructor
+			~pageTableEntry();	// Destructor
+		};
+
+	+ Added to ipt.h
+		class IPTEntry: public TranslationEntry
+		{
+			public:
+			int processId;
+			IPTEntry();
+			~IPTEntry();
+		};
+	+ Added to nettest.cc
+		struct Serverlock
+		{
+			char* lockName;
+			bool isToBeDeleted;
+			List* messageQueue;
+			List* destMachineIDQueue;
+			LockStatus lockStatus;
+			int lockOwner;
+			int useCount;
+		};
+		
+		struct ServerCV
+		{
+			char *cvName;
+			bool isToBeDeleted;
+			List *messageWaitQueue;
+			List *destMachineIDQueue;
+			int waitLock;
+			int waitQueueCount;
+			int useCount;
+		};
+
+		struct ServerMV
+		{
+			char* mvName;
+			int* mv;
+			int size;
+			int useCount;
+		};
+
++ Functions added and in which file
+	File Name: nachos-csci402/code/userprog/exception.cc
+		Functions Added: 		
+		handlePageFault()
+		handleIPTMiss()
+		handleMemoryFull()
+		addTOFIFOPage()
+		getFIFOPage()
+		CreateMV_Syscall()
+		DeleteMV_Syscall()
+		GetMV_Syscall()
+		SetMV_Syscall()
+		SendMessageToServer()
+		ReceiveMessageFromServer()
+		
+		Functions Modified: 
+			- Exit_Syscall()
+			- All system calls for Locks/CV modified
+		
+	File Name: nachos-csci402/code/userprog/addrspace.cc
+		Functions Added: 
+			-
+		
+		Functions Modified: 
+			- DeleteStackForThread()
+			- DeleteProcessPhysicalPages ()
+			- stackPageAllocation()
+			- AddrSpace()
+			- RestoreState()
+		
+	Directory Name: nachos-csci402/code/threads/system.cc
+		Functions Added: 		
+			-
+
+		Functions Modified: 
+		- Initialize()
+	
+	Directory Name: nachos-csci402/code/nettest.cc
+		Functions Added: 		
+			- void sendMessage(int to, char* toSendMessage)
+			- void CreateServerLock(char *LockName)
+			- int AcquireLock(int machineId, int lock_ID)
+			- int ReleaseLock(int machineId, int lock_ID)
+			- DeleteServerLock(machineId,atoi(mess1));
+			- CreateServerCV(machineId,mess1);
+			- WaitServerCV(machineId,mess1);
+			- SignalServerCV(machineId,mess1);
+			- BroadcastServerCV(machineId,mess1);
+			- DeleteServerCV(machineId,atoi(mess1));
+			- CreateMV(machineId,mess1);
+			- SetValue(machineId,mess1);
+			- GetValue(machineId,mess1);
+			- DeleteServerMV(machineId,atoi(mess1));
+			
+		Functions Modified: 
+			- MailTest()
+
+***********************************************************************************************************************************************************
+V. Testing:
+***********************************************************************************************************************************************************
++ How to test
+
+-----------------------
+	Part 1 & Part 2 
+-----------------------
++ How to test
+
+----------------------------------------------------------------------------------------------------------------------
+			Test Cases For Part 1 & Part 2 - Virtual Memory
+----------------------------------------------------------------------------------------------------------------------
+
+NOTE: BY DEFAULT THE PAGE REPLACEMENT POLICY IS FIFO. THUS IF YOU DON'T USE THE -PFIFO/ -PRAND FLAG, THE PAGE REPLACEMENT POLICY WILL BE FIFO.
+	  THE -PFIFO / -PRAND FLAG CAN BE USED ANYWHERE IN THE COMMAND
+	  For eg: "nachos -PFIFO -x ../test/matmult" OR "nachos -x ../test/matmult -PFIFO"
+
+Test Case 1: Run One MatMult
+			
+			This runs the matmult program once. Use the following command to execute this test:
+			
+			For using Random Page Replacement Policy:
+				
+				"nachos -x ../test/matmult -PRAND"
+				
+			For using FIFO Page Replacement Policy:
+			
+				"nachos -x ../test/matmult -PFIFO"
+				
+Test Case 2: Run One Sort
+			
+			This runs the sort program once. Use the following command to execute this test:
+			
+			For using Random Page Replacement Policy:
+				
+				"nachos -x ../test/sort -PRAND"
+				
+			For using FIFO Page Replacement Policy:
+			
+				"nachos -x ../test/sort -PFIFO"
+			
+Test Case 3: Fork 2 MatMults
+
+			This runs the matmult program twice. It forks 2 matmults at the same time. Use the following command to execute this test:
+			
+			For using Random Page Replacement Policy:
+				
+				"nachos -x ../test/uprgmatmultFork -PRAND"
+				
+			For using FIFO Page Replacement Policy:
+			
+				"nachos -x ../test/uprgmatmultFork -PFIFO"
+			
+
+Test Case 4: Fork 2 Sorts
+
+			This runs the sort program twice. It Forks 2 sorts at the same time. Use the following command to execute this test:
+			
+			For using Random Page Replacement Policy:
+				
+				"nachos -x ../test/uprgsortFork -PRAND"
+				
+			For using FIFO Page Replacement Policy:
+			
+				"nachos -x ../test/uprgsortFork -PFIFO"
+			
+Test Case 5: Exec 2 Matmults
+
+			This runs the matmult program twicw. It Execs two matmults simulteneously. Use the following command to execute this test:
+			
+			For using Random Page Replacement Policy:
+				
+				"nachos -x ../test/uprgmatmultExec -PRAND"
+				
+			For using FIFO Page Replacement Policy:
+			
+				"nachos -x ../test/uprgmatmultExec -PFIFO"
+			
+Test Case 6: Exec 2 Sorts
+
+			This runs the sort program twice. It Execs 2 sorts simultaneously. Use the following command to execute this test:
+			
+			For using Random Page Replacement Policy:
+				
+				"nachos -x ../test/uprgsortExec -PRAND"
+				
+			For using FIFO Page Replacement Policy:
+			
+				"nachos -x ../test/uprgsortExec -PFIFO"
+			
+Test Case 7: Fork one matmult and one sort
+
+			This runs one matmult and one sort. It forks one matmult and one sort simultaneoulsy. Use the following command to execute this test:
+			
+			For using Random Page Replacement Policy:
+		
+				"nachos -x ../test/uprgmatsortFork -PRAND"
+				
+			For using FIFO Page Replacement Policy:
+			
+				"nachos -x ../test/uprgmatsortFork -PFIFO"
+			
+Test Case 8: Exec one matmult and one sort
+					
+			This runs one matmult and one sort. It Execs one matmult and one sort simultaneously. Use the following command to execute this test:
+			
+			For using Random Page Replacement Policy:
+				
+				"nachos -x ../test/uprgmatsortExec -PRAND"
+				
+			For using FIFO Page Replacement Policy:
+			
+				"nachos -x ../test/uprgmatsortExec -PFIFO"
+
+*<Extra Credit Implementation>: This test case allows you to run two userprograms at the same time in two windows at the same time. The swap file in this case gets created with a time stamp so that the two programs use different swap files and run simultaneously.
+
+Test Case 9: Fork/ Exec two Matmults and Sorts in two different windows
+
+			Open one window for nachos.
+				
+				Type any of the following command in this window:
+				
+					"nachos -x ../test/uprgmatmultFork -PRAND"
+					
+								OR
+					"nachos -x ../test/uprgmatmultFork -PFIFO"
+					
+								OR
+					"nachos -x ../test/uprgmatmultExec -PRAND"
+					
+								OR
+					"nachos -x ../test/uprgmatmultExec -PFIFO"
+			
+			Open another window for nachos.
+			
+				Type any of the following command in this window:
+				
+					"nachos -x ../test/uprgsortFork -PRAND"
+					
+								OR
+					"nachos -x ../test/uprgsortFork -PFIFO"
+					
+								OR
+					"nachos -x ../test/uprgsortExec -PRAND"
+					
+								OR
+					"nachos -x ../test/uprgsortExec -PFIFO"
+					
+NOTE: YOU CAN ALSO RUN THE SAME TWO COMMANDS, FROM ABOVE LIST, IN BOTH THE WINDOWS.
+		
+-----------------
+	Part 3 
+-----------------			
++++++++++++++++++++++++++
+Positive Test Cases		+
++++++++++++++++++++++++++
+
+*****************************************************************************
+* <IMP>PLEASE NOTE: 														*
+* Please Re-run the server machine after each Test Case Execution			*
+* Reason: Server may run out of resources and lead to problem				*
+*****************************************************************************
+*Server can provide limited number of resources to clients.
+
+The following test cases provide tests for RPC calls which are used by client machines to request for resources. These test cases provide positive outputs and positive working of all the RPC call mechanisms included in the server.
+
++ HOW TO TEST +
+-----------------------------------------------------------
+	>> Remote Syscall Test Case 1: Test to basic working of Lock
+		Explanation:	In this the client first creates the lock, acquires it, releases it and then deletes it.
+	  
+	  + How to Run:
+			A. Open 2 Terminals:
+				  i. First Terminal: We run Server here
+							nachos -m 0 -s
+  				  ii. Now we run client 1
+							nachos -m 1 -x ../test/rpcLockTest
+-----------------------------------------------------------
+	>> Remote Syscall Test Case 2: Test to basic working of Condition Wait and Signal with Locks
+		Explanation:	In this the client 1 first creates the lock and a condition, acquires the lock, and Waits on the condition. Client 2 creates the lock and condition with the same name and hence gets the same lockId and cvId that client 1 got from server. Then client 2 signals on the condition client 1 is waiting for, and releases the lock and deletes it, but nachos does not deletes the lock right away since it is also being used by client 1. On receiving signal from client 2, client 1 releases the lock and then deletes it.
+	  
+	    + How to Run:
+			A. Open 3 Terminals:
+				  i. First Terminal: We run Server here
+							nachos -m 0 -s
+  				  ii. Now we run client 1
+							nachos -m 1 -x ../test/rpcMVTest2_1
+				  iii.Now we run client 2
+							nachos -m 2 -x ../test/rpcMVTest2_2
+	-----------------------------------------------------------						 
+	>> Remote Syscall Test Case 3: Test to basic working of Condition Wait and Signal and Monitor Variables Get and Set with Locks 
+		Explanation:	In this the client 1 first creates a lock, a condition and a monitor variable acquires the lock, sets monitor variable and then Waits on the condition. Client 2 creates the lock, condition and monitor variable with the same name and hence gets the same lockId cvId, mvId that client 1 got from server. Then client 2 check the monitor variable, set value and signals on the condition client 1 is waiting for, and releases the lock and deletes it, but nachos does not deletes the lock right away since it is also being used by client 1. On receiving signal from client 2, client 1 releases the lock and then deletes it.
+
+	    + How to Run:
+			A. Open 3 Terminals:
+				  i. First Terminal: We run Server here
+							nachos -m 0 -s
+  				  ii. Now we run client 1
+							nachos -m 1 -x ../test/rpcMVTest3_1
+				  iii.Now we run client 2
+							nachos -m 2 -x ../test/rpcMVTest3_2
+							
+	-----------------------------------------------------------						
+	>> +<Extra Credit Test Case>+ Remote Syscall Test Case 5: <Test Case which handles all the available funtionalities of resources provided by server with 5 concurrent client machines>
+		Explanation: This test case handles five Clients and one server. This test case helps us test the working of Lock Acquire Queue,CV Wait Queue, Monitor Variable Values Set and Get, also broadcast RPC Call, and also deletetion and sharing of all the resources among all the clients of all these resources.
+		
+	+ How to Run:
+		A. Open 6 Terminals:
+			i. 	First Terminal: We run Server here
+					nachos -m 0 -s
+			
+			ii. Now we run client 1 on another Terminal:
+					nachos -m 1 -x ../test/rpcTest1
+			
+			iii.Now we run client 2 on another Terminal:
+					nachos -m 2 -x ../test/rpcTest2
+					
+			iv. Now we run client 3 on another Terminal:
+					nachos -m 3 -x ../test/rpcTest3
+			
+			v.	Now we run client 5 on another Terminal:
+					nachos -m 5 -x ../test/rpcTest5
+			
+			vi.	Now we run client 4 on another Terminal:
+					nachos -m 4 -x ../test/rpcTest4
+
++++++++++++++++++++++++++++++++++
+Part 3: Negative Test Cases		+
++++++++++++++++++++++++++++++++++
+These Test Cases provide the tests where we handle the situations where server gets illegal parameters from client machine.
+Here server validates the parameters received from the client, and if it finds illegal parameters then the server sends back
+"-1" as a ACK with the error message concatinated to it.
+
++ HOW TO TEST +
+-----------------------------------------------------------
+	>> Negative Test Case 1: Test to Acquire a lock which is not Created
+	  Explanation:	In this the client first creates the lock and then tries to acquire the lock be passing a different Id than what was provided by the server. Thus server throws the error message back to the client and client is not able to acquire the lock as lock Id is not valid.
+	   
+	  + How to Run:
+		A. Open 2 Terminals:
+			  i.  First Terminal: We run Server here
+						nachos -m 0 -s
+ 			  ii. Now we run client 1
+						nachos -m 1 -x ../test/negativeTest_1
+-----------------------------------------------------------
+	>> Negative Test Case 2: Test to Wait on a lock which is Created but is not Acquired
+	  Explanation:	Here the client tries to call wait on a condition by passing the lock which is not acquired by it. The server sends an error message to the client and client is not able to wait on a condition without acquiring the lock first. 
+
+	  + How to Run:
+		A. Open 2 Terminals:
+			  i.  First Terminal: We run Server here
+						nachos -m 0 -s
+ 			  ii. Now we run client 1
+						nachos -m 1 -x ../test/negativeTest_2
+-----------------------------------------------------------						
+	>> Negative Test Case 3: Test to Access Monitor Variable at index out of bound
+	  Explanation:	In this the client first creates a lock, a condition and a monitor variable, it then sets a value at index 1 of monitor variable and then tries to access value at an index which is out of bound and the server returns an error message.
+	  
+	  + How to Run:
+		A. Open 2 Terminals:
+			  i.  First Terminal: We run Server here
+						nachos -m 0 -s
+ 			  ii. Now we run client 1
+						nachos -m 1 -x ../test/negativeTest_3	  
+-----------------------------------------------------------	  
+	>> Negative Test Case 4: Test to Signal on a condition with a Lock which is not yet created.
+	  Explanation:	In this test, there are two client, the first client creates a lock and a condition and the one client wait on the condition with the lock it created. Then the second client creates a lock with different name and tries to signal on the same condition on which the other client is waiting and the server returns an error message as the waitlock and condition lcok are different. 
+	  
+	  + How to Run:
+		A. Open 2 Terminals:
+			  i.  First Terminal: We run Server here
+						nachos -m 0 -s
+ 			  ii. Now we run client 1
+						nachos -m 1 -x ../test/negativeTest_4_1
+ 			  iii.Now we run client 1
+						nachos -m 1 -x ../test/negativeTest_4_2	
+-----------------------------------------------------------
+	>> Negative Test Case 5: Test to Release a lock which is not Acquired
+	  Explanation:	In this the client first creates the lock and then tries to release the lock without acquiring it. Thus server throws the error message back to the client and client is not able to release the lock as it is not the lock owner.
+	  
+	  + How to Run:
+		A. Open 2 Terminals:
+			  i.  First Terminal: We run Server here
+						nachos -m 0 -s
+ 			  ii. Now we run client 1
+						nachos -m 1 -x ../test/negativeTest_5
+-----------------------------------------------------------	  
+	>> Negative Test Case 6: Test to Get Monitor Variable which is destroyed
+	  Explanation:	Here the client creates the monitor variable, sets the value and destroy the monitor variable. The client then tries to get the value of the monitor variable which nachos has already destroyed. The server sends an error message to the client.
+	  
+	  + How to Run:
+		A. Open 2 Terminals:
+			  i.  First Terminal: We run Server here
+						nachos -m 0 -s
+ 			  ii. Now we run client 1
+						nachos -m 1 -x ../test/negativeTest_6
+
+==============================================================================
+==============================================================================
+					
++ Test Output
+-----------------------
+	Part 1 & Part 2
+-----------------------
++ Test Output
+----------------------------------------------------------------------------------------------------------------------
+			Test Cases For Part 1 & Part 2 - Virtual Memory
+----------------------------------------------------------------------------------------------------------------------
+>> Test Case 1:
+			MatMult - Result = 7220
+
+			main is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+			
+>> Test Case 2:
+			Sort - Result = 1023
+
+			main is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+			
+>> Test Case 3:
+			Forking 2 matmults
+
+			First Fork : Result = 7220
+
+			Second Fork : Result = 7220
+
+			NewChildThead is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+
+>> Test Case 4:
+			
+			Forking 2 sorts
+
+			First Fork : Result = 1023
+			
+			Second Fork : Result = 1023
+
+			NewChildThead is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+			
+>> Test Case 5:
+			Exec 2 matmults
+
+			MatMult - Result = 7220
+
+			MatMult - Result = 7220
+
+			ProcessThread is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+
+>> Test Case 6:
+			Exec 2 sorts
+
+			Sort - Result = 1023
+
+			Sort - Result = 1023
+
+			ProcessThread is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+
+
+>> Test Case 7:
+			Forking matmult
+
+			Forking sort
+
+			MatMult - Result = 7220
+
+			Sort - Result = 1023
+
+			NewChildThead is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+			
+>> Test Case 8:
+			Exec matmult
+
+			Exec sort
+
+			MatMult - Result = 7220
+
+			Sort - Result = 1023
+
+			ProcessThread is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+			
+>> Test Case 9:
+			If you run program that forks two matmult in 1st window and another program that forks two sort in 2nd window then the following output is seen:
+			
+			In Window 1:
+			
+			Forking 2 matmults
+
+			First Fork : Result = 7220
+
+			Second Fork : Result = 7220
+
+			NewChildThead is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+			
+			
+			In Window 2:
+			
+			Forking 2 sorts
+
+			First Fork : Result = 1023
+			
+			Second Fork : Result = 1023
+
+			NewChildThead is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+
+			If you run program that Execs two matmult in 1st window and another program that Execs two sort in 2nd window then the following output is seen:
+
+			In Window 1:
+			
+			Exec 2 matmults
+
+			MatMult - Result = 7220
+
+			MatMult - Result = 7220
+
+			ProcessThread is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+			
+			
+			In Window 2:
+			
+			Exec 2 sorts
+
+			Sort - Result = 1023
+
+			Sort - Result = 1023
+
+			ProcessThread is the last thread in ALL the processes - Thus Halting the System
+			Machine halting!
+			
+
+Depending on the combnination that you run , the output will be also a combination of two of the above outputs
+		
+-------------------------------
+	Part 3
+-------------------------------
+---------------------
+Positive Test Cases:
+---------------------
+>> Test Case 1: Test For Lock RPC Function Calls
+				
+		> Server Terminal O/P:
+					--------------------
+					Server Started
+					Server Waiting to receive
+					Got "alock1" from 1, box 0
+					Lock 1 created for Machine ID 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "b1" from 1, box 0
+					Free Lock Found for Machine ID 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c1" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					--------------------
+					
+		> Client 1 Terminal OutPut:
+					--------------------
+					Creating a Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Lock Created, Lock Id returned by the server is : 1
+					Acquiring Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Acquired Lock
+					Releasing Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Released Lock
+					--------------------
+----------------------------------------
+>> Test Case 2: Test For Lock, CV RPC Function Calls
+				
+		> Server Terminal O/P:
+					--------------------
+					Server Started
+					Server Waiting to receive
+					Got "alock1" from 1, box 0
+					Lock 1 created for Machine ID 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "ecv1" from 1, box 0
+					CV Created at server, return CVID: 1 to machineID: 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "b1" from 1, box 0
+					Free Lock Found for Machine ID 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "f1,1" from 1, box 0
+					Machine Id 1 put to wait queue of CV 1 and Lock 1
+					Server Waiting to receive
+					Got "alock1" from 2, box 0
+					Lock already Created, return LockID to machine 2
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "ecv1" from 2, box 0
+					CV already created, so return ID to machineID 2
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "b1" from 2, box 0
+					Free Lock Found for Machine ID 2
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "g1,1" from 2, box 0
+					Lock Busy so put Machine ID 1 to wait queue
+					Machine Id 2 signalled using CVId: 1 and Lock 1
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c1" from 2, box 0
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c1" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "d1" from 2, box 0
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "d1" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					--------------------
+					
+		> Client 1 Terminal OutPut: Client 1 Waiting on CV and Lock
+					--------------------
+					Creating a Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Lock Created, Lock Id returned by the server is : 1
+
+					Creating a CV
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					CV Created, CV Id returned by the server is : 1
+
+					Acquiring Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Acquired Lock
+
+					Waiting on CV1 with Lock1. Please start rpcMVTest2_2 program
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Releasing Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Released Lock
+
+					Deleting Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Deleted Lock
+					--------------------
+		> Client 2 Terminal OutPut: Client 2 signals Client 1 on CV and Lock
+					--------------------
+					Creating a Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Lock Created, Lock Id returned by the server is : 1
+
+					Creating a CV
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					CV Created, CV Id returned by the server is : 1
+
+					Acquiring Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Acquired Lock
+
+					Signalling on CV1 with Lock1 to rpcMVTest2_1 program
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Releasing Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Released Lock
+
+					Deleting Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Deleted Lock
+					--------------------
+----------------------------------------
+>> Test Case 3: Test For Monitor Variable RPC Function Calls w/t CV and Lock
+				
+		> Server Terminal O/P:
+					--------------------
+					Server Started
+					Server Waiting to receive
+					Got "alock1" from 1, box 0
+					Lock 1 created for Machine ID 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "ecv1" from 1, box 0
+					CV Created at server, return CVID: 1 to machineID: 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "jmv1,5" from 1, box 0
+					MV Created, MVId 1 returned to Machine Id 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "b1" from 1, box 0
+					Free Lock Found for Machine ID 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "l1,1,100" from 1, box 0
+
+					Message Received: 1,1,100
+					MV[100] set to Value 1 by Machine Id 1
+
+					Index: 1,value to be set: 100
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "k1,1" from 1, box 0
+					MV[100] Value 1 returned to Machine Id 1
+					Sent "100" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "f1,1" from 1, box 0
+					Machine Id 1 put to wait queue of CV 1 and Lock 1
+					Server Waiting to receive
+					Got "alock1" from 2, box 0
+					Lock already Created, return LockID to machine 2
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "ecv1" from 2, box 0
+					CV already created, so return ID to machineID 2
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "jmv1,5" from 2, box 0
+					MV Name already created, returning MVId to Machine Id 2
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "b1" from 2, box 0
+					Free Lock Found for Machine ID 2
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "k1,1" from 2, box 0
+					MV[100] Value 1 returned to Machine Id 2
+					Sent "100" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "g1,1" from 2, box 0
+					Lock Busy so put Machine ID 1 to wait queue
+					Machine Id 2 signalled using CVId: 1 and Lock 1
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "l1,2,222" from 2, box 0
+
+					Message Received: 1,2,222
+					MV[222] set to Value 2 by Machine Id 2
+
+					Index: 2,value to be set: 222
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c1" from 2, box 0
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "k1,2" from 1, box 0
+					MV[222] Value 2 returned to Machine Id 1
+					Sent "222" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c1" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					--------------------
+					
+		> Client 1 Terminal O/P: Client 1 creates MV and sets its value and waits on CV and then gets a value
+					--------------------
+					Creating a CV
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					CV Created, CV Id returned by the server is : 1
+
+					Creating a MV
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					MV Created, MV Id returned by the server is : 1
+
+					Acquiring Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Acquired Lock
+
+					Setting MV to 100
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					MV set successfully.
+
+					Getting MV value at index 1
+					Sent Get monitor variable request to server...
+
+					In Receive Message
+					Got "100" from 0, box 0
+
+					Got value from MV at index 1: 100.
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Waiting on CV1 with Lock1. Please start rpcMVTest3_2 program
+
+					Getting MV value at index 2
+					Sent Get monitor variable request to server...
+
+					In Receive Message
+					Got "222" from 0, box 0
+
+					Got value from MV at index 2 : 222.
+
+					Releasing Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Released Lock
+					--------------------
+
+		> Client 2 Terminal O/P: Client 1 creates MV and gets its value and then sets a value and signals on CV to client 1
+					--------------------
+					
+					Creating a Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Lock Created, Lock Id returned by the server is : 1
+
+					Creating a CV
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					CV Created, CV Id returned by the server is : 1
+
+					Creating a MV
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					MV Created, MV Id returned by the server is : 1
+
+					Acquiring Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Acquired Lock
+
+					Getting MV value at index 1
+					Sent Get monitor variable request to server...
+
+					In Receive Message
+					Got "100" from 0, box 0
+
+					Got value from MV at index 1: 100.
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Signalling on CV1 with Lock1
+
+					Setting MV index 2 to 222
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					MV set successfully.
+
+					Releasing Lock
+
+					In Receive Message
+					Got "1" from 0, box 0
+
+					Released Lock
+					--------------------
+----------------------------------------	
+	>> Test Case 4: Test case for all RPC Calls + Test for Wait Queue for CV and Wait Queue for Lock 
+		<5 Clients + 1 Server>
+		
+		>> Server: (*As the output for server is too long, not the entire output showed here)
+					--------------------
+					Sent "1" to outPktHdr.to: 3,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "ecv1" from 3, box 0
+					CV already created, so return ID to machineID 3
+					Sent "1" to outPktHdr.to: 3,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "jmv1,5" from 3, box 0
+					MV Name already created, returning MVId to Machine Id 3
+					Sent "1" to outPktHdr.to: 3,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "b1" from 3, box 0
+					Lock Busy so put Machine ID 3 to wait queue
+					Server Waiting to receive
+					Got "alock3" from 5, box 0
+					Lock 3 created for Machine ID 5
+					Sent "3" to outPktHdr.to: 5,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "ecv3" from 5, box 0
+					CV Created at server, return CVID: 3 to machineID: 5
+					Sent "3" to outPktHdr.to: 5,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "jmv3,5" from 5, box 0
+					MV Created, MVId 3 returned to Machine Id 5
+					Sent "3" to outPktHdr.to: 5,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "b3" from 5, box 0
+					Free Lock Found for Machine ID 5
+					Sent "1" to outPktHdr.to: 5,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "f3,3" from 5, box 0
+					Machine Id 5 put to wait queue of CV 3 and Lock 3
+					Server Waiting to receive
+					Got "alock2" from 4, box 0
+					Lock already Created, return LockID to machine 4
+					Sent "2" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "ecv2" from 4, box 0
+					CV already created, so return ID to machineID 4
+					Sent "2" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "jmv2,5" from 4, box 0
+					MV Name already created, returning MVId to Machine Id 4
+					Sent "2" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "b2" from 4, box 0
+					Free Lock Found for Machine ID 4
+					Sent "1" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "k2,0" from 4, box 0
+					MV[1] Value 0 returned to Machine Id 4
+					Sent "1" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "l2,1,5" from 4, box 0
+
+					Message Received: 2,1,5
+					MV[5] set to Value 1 by Machine Id 4
+
+					Index: 1,value to be set: 5
+					Sent "1" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "g2,2" from 4, box 0
+					Lock Busy so put Machine ID 1 to wait queue
+					Machine Id 4 signalled using CVId: 2 and Lock 2
+					Sent "1" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c2" from 4, box 0
+					Sent "1" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "d2" from 4, box 0
+					Sent "1" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "k2,1" from 1, box 0
+					MV[5] Value 1 returned to Machine Id 1
+					Sent "5" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "i2" from 4, box 0
+					Sent "1" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "m2" from 4, box 0
+					Sent "1" to outPktHdr.to: 4,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "f1,1" from 1, box 0
+					Machine Id 1 put to wait queue of CV 1 and Lock 1
+					Server Waiting to receive
+					Got "f1,1" from 2, box 0
+					Machine Id 2 put to wait queue of CV 1 and Lock 1
+					Server Waiting to receive
+					Got "g1,1" from 3, box 0
+					Lock Busy so put Machine ID 1 to wait queue
+					Machine Id 3 signalled using CVId: 1 and Lock 1
+					Sent "1" to outPktHdr.to: 3,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "f1,1" from 3, box 0
+					Machine Id 3 put to wait queue of CV 1 and Lock 1
+					Server Waiting to receive
+					Got "l1,3,402" from 1, box 0
+
+					Message Received: 1,3,402
+					MV[402] set to Value 3 by Machine Id 1
+
+					Index: 3,value to be set: 402
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "h1,1" from 1, box 0
+					Lock Busy so put Machine ID 2 to wait queue
+					Machine Id 1 signalled using CVId: 1 and Lock 1
+					Lock Busy so put Machine ID 3 to wait queue
+					Machine Id 1 signalled using CVId: 1 and Lock 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c1" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "k1,3" from 2, box 0
+					MV[402] Value 3 returned to Machine Id 2
+					Sent "402" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c2" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c1" from 2, box 0
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "d1" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "d1" from 2, box 0
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "k1,3" from 3, box 0
+					MV[402] Value 3 returned to Machine Id 3
+					Sent "402" to outPktHdr.to: 3,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "d2" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "m1" from 2, box 0
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c1" from 3, box 0
+					Sent "1" to outPktHdr.to: 3,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "i1" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "i1" from 2, box 0
+					Sent "1" to outPktHdr.to: 2,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "d1" from 3, box 0
+					Sent "1" to outPktHdr.to: 3,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "i2" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "m1" from 3, box 0
+					Sent "1" to outPktHdr.to: 3,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "m1" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "i1" from 3, box 0
+					Sent "1" to outPktHdr.to: 3,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "m2" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "alock3" from 1, box 0
+					Lock already Created, return LockID to machine 1
+					Sent "3" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "ecv3" from 1, box 0
+					CV already created, so return ID to machineID 1
+					Sent "3" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "jmv3,5" from 1, box 0
+					MV Name already created, returning MVId to Machine Id 1
+					Sent "3" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "b3" from 1, box 0
+					Free Lock Found for Machine ID 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "l3,3,1" from 1, box 0
+
+					Message Received: 3,3,1
+					MV[1] set to Value 3 by Machine Id 1
+
+					Index: 3,value to be set: 1
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "g3,3" from 1, box 0
+					Lock Busy so put Machine ID 5 to wait queue
+					Machine Id 1 signalled using CVId: 3 and Lock 3
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c3" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "d3" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "k3,3" from 5, box 0
+					MV[1] Value 3 returned to Machine Id 5
+					Sent "1" to outPktHdr.to: 5,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "i3" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "c3" from 5, box 0
+					Sent "1" to outPktHdr.to: 5,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "m3" from 1, box 0
+					Sent "1" to outPktHdr.to: 1,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "d3" from 5, box 0
+					Sent "1" to outPktHdr.to: 5,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "m3" from 5, box 0
+					Sent "1" to outPktHdr.to: 5,outMailHdr.to: 0
+					Server Waiting to receive
+					Got "i3" from 5, box 0
+					Sent "1" to outPktHdr.to: 5,outMailHdr.to: 0
+					Server Waiting to receive
+				----------------------------------------
+		
+		>> Client1: nachos -m 1 -x ../test/rpcTest1
+				-----------------------------
+				In Receive Message
+				Got "1" from 0, box 0
+				lock1 created in rpcClient1 with lockid: 1
+
+				In Receive Message
+				Got "2" from 0, box 0
+				lock2 created in rpcClient1 with lockid: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+				cv1 created in rpcClient1 with CVid: 1
+
+				In Receive Message
+				Got "2" from 0, box 0
+				cv2 created in rpcClient1 with CVid: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+				mv1 created in rpcClient1 with MVid: 1
+
+				In Receive Message
+				Got "2" from 0, box 0
+				mv2 created in rpcClient1 with MVid: 2
+
+				Acquire lock1: 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Acquire lock2: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				MV2 index: 0 set to 1 by rpcClient1
+
+				Waiting on CV2 Lock2 for signal from rpcClient4
+
+				Note: Now, please run rpcClient2
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Got Signal on CV2 Lock2 from rpcClient4 in rpcClient1
+				Sent Get monitor variable request to server...
+
+				In Receive Message
+				Got "5" from 0, box 0
+
+				Value of MV2 index 1 is 5 in rpcClient1
+
+				Waiting on CV1 Lock1 to get signal from rpcClient3
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Got Signal on CV1 Lock1 from rpcClient3
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				MV1 index: 3 set to 402 in rpcClient1
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Broadcasted on cv1 and lock1 to rpcClient2 and rpcClient3
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Released lock1: 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Released lock2: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeleteLock Request id: 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeleteLock Request id: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeleteCV Request id: 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeleteCV Request id: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletMV Request id: 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletMV Request id: 2
+				All resources requested to be deleted
+
+				In Receive Message
+				Got "3" from 0, box 0
+				lock3 created in rpcClient1 with lockid: 3
+
+				In Receive Message
+				Got "3" from 0, box 0
+				cv3 created in rpcClient1 with CVid: 3
+
+				In Receive Message
+				Got "3" from 0, box 0
+				mv3 created in rpcClient1 with MVid: 3
+
+				Acquire lock3: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				MV3 index: 3 set to 1 by rpcClient1
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Signalled on cv3 and lock3 to rpcClient5
+
+				Release lock3: 3
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+				-----------------------------
+				
+		>> Client2: nachos -m 2 -x ../test/rpcTest2
+				-----------------------------
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Lock1 created in rpcClient2 with lockid 1
+				cv1 created in rpcClient2 with cvid 1
+				mv1 created in rpcClient2 with mvid 1
+
+				Acquire lock1: 1 in rpcClient2
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Waiting on CV1 Lock1 to get broadcast signal from rpcClient1
+
+				Note: Now run rpcClient3
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Got Broadcast on CV1 Lock1 from rpcClient1
+				Sent Get monitor variable request to server...
+
+				In Receive Message
+				Got "402" from 0, box 0
+
+				Value of MV1 index 3 set by rpcClient1 is 402
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletLock Request id: 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletMV Request id: 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletCV Request id: 1
+
+				-----------------------------			
+				
+		>> Client3: nachos -m 3 -x ../test/rpcTest3
+				-----------------------------
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Acquire lock1: 1 in rpcClient3
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Waiting on CV1 Lock1 to get broadcast signal from rpcClient1
+
+				Note: Now run rpcClient3
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Got Broadcast on CV1 Lock1 from rpcClient1
+				Sent Get monitor variable request to server...
+
+				In Receive Message
+				Got "402" from 0, box 0
+
+				Value of MV1 index 3 set by rpcClient1 is 402
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletLock Request id: 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletMV Request id: 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletCV Request id: 1
+				-----------------------------			
+				
+		>> Client5: nachos -m 5 -x ../test/rpcTest5
+				-----------------------------
+				In Receive Message
+				Got "3" from 0, box 0
+
+				In Receive Message
+				Got "3" from 0, box 0
+
+				In Receive Message
+				Got "3" from 0, box 0
+
+				Acquire lock3: 3 in rpcclient5
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Got Signal on cv3 lock3 from rpcClient1
+				Sent Get monitor variable request to server...
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Value of mv3 index 3 set by rpcClient1 is 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletLock Request id: 3
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletMV Request id: 3
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletCV Request id: 3
+
+				-----------------------------		
+				
+		>> Client4: nachos -m 4 -x ../test/rpcTest4
+				-----------------------------
+				In Receive Message
+				Got "2" from 0, box 0
+				lock2 created in rpcClient4 with lockid: 2
+				cv1 created in rpcClient4 with CVid: 0
+
+				In Receive Message
+				Got "2" from 0, box 0
+				cv2 created in rpcClient4 with CVid: 2
+
+				In Receive Message
+				Got "2" from 0, box 0
+				mv2 created in rpcClient2 with MVid: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Acquired lock2: 2
+				Sent Get monitor variable request to server...
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Value of MV2 index 0 set by rpcClient4 is 1
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				MV2 index: 1 set to 5 by rpcClient4
+
+				Signalling on CV2 Lock2 to rpcClient1
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				In Receive Message
+				Got "1" from 0, box 0
+
+				Released lock2: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletLock Request id: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeletCV Request id: 2
+
+				In Receive Message
+				Got "1" from 0, box 0
+				Sent DeleteMV Request id: 2
+				-----------------------------		
+---------------------------------------------
+RPC Negative Test Cases OutPut:
+---------------------------------------------
+Negative Test 1:
+
+		> Server Terminal O/P:
+					Server Started
+					Waiting for Message to be received
+					Got "alock1" from 1, box 0
+					Lock 1 created for Machine ID 1
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0
+
+					Waiting for Message to be received
+					Got "b11" from 1, box 0
+					Server cannot process this request as lockId in invalid
+					Mesage Sent -1WrongLockID to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+
+
+		> Client Terminal O/P:
+					Creating a Lock
+					In Receive Message
+					Got "1" from 0, box 0
+					Lock Created, Lock Id returned by the server is : 1
+
+					Trying to acquire lock with id: 11 different than what was returned by server
+					In Receive Message
+					Got "-1WrongLockID" from 0, box 0
+					Server failed to acquire lock
+					Invalid Lock Id. Failed to Acquire Lock. Exiting Program
+
+__________________________________________________________________________________________________________________
+
+Negative Test 2:
+		> Server Terminal O/P:
+					Server Started
+					Waiting for Message to be received
+					Got "alock1" from 1, box 0
+					Create Lock request successful
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0
+
+					Waiting for Message to be received
+					Got "ecv1" from 1, box 0
+					Create CV request successful
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0 
+
+					Waiting for Message to be received
+					Got "f1,1" from 1, box 0
+					Wait request cannot be processed as client is not the lock owner
+					1 does not has the lock 1
+					Mesage Sent -1NotLockOwner to outPktHdr.to: 1,outMailHdr.to: 0,  
+					Waiting for Message to be received
+
+
+		> Client Terminal O/P:
+
+					Creating a Lock
+					In Receive Message
+					Got "1" from 0, box 0
+					Lock Created, Lock Id returned by the server is : 1
+
+					Creating a CV
+					In Receive Message
+					Got "1" from 0, box 0
+					CV Created, CV Id returned by the server is : 1
+
+					Trying to call Wait with valid cvId : and invalid lockId : 1 different than what was returned by server
+					In Receive Message
+					Got "-1NotLockOwner" from 0, box 0
+					Server failed to Wait for the given condition
+
+_________________________________________________________________________________________________________________________________________
+
+Negative Test 3:
+
+		> Server Terminal O/P:
+					Server Started
+					Waiting for Message to be received
+					Got "alock1" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "ecv1" from 1, box 0
+					1 Length: 1
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+					Waiting for Message to be received
+
+					Got "jmv1,5" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+					Waiting for Message to be received
+
+					Got "l1,1,100" from 1, box 0
+					Message Received: 1,1,100
+					Index: 1,value to be set: 100
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "k1,21" from 1, box 0
+					MV index 21 is out of bound
+					Mesage Sent -1Invalid size to outPktHdr.to: 1,outMailHdr.to: 0,  
+					Waiting for Message to be received
+
+		> Client Terminal O/P:
+
+					Creating a Lock
+					In Receive Message
+					Got "1" from 0, box 0
+					Lock Created, Lock Id returned by the server is : 1
+
+					Creating a CV
+					In Receive Message
+					Got "1" from 0, box 0
+					CV Created, CV Id returned by the server is : 1
+
+					Creating a MV
+					In Receive Message
+					Got "1" from 0, box 0
+					MV Created, MV Id returned by the server is : 1
+
+					Setting MV to 100
+					In Receive Message
+					Got "1" from 0, box 0
+					MV set successfully.
+
+					Trying to fetch value at invalid mv Index : 21
+					Sent Get monitor variable request to server...
+					In Receive Message
+					Got "-1Invalid size" from 0, box 0
+
+					Failed to Get monitor variable value from server
+
+ 
+Negative Test 4:
+
+		> Server Terminal O/P:
+
+					Waiting for Message to be received
+					Got "alock1" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "b1" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "ecv1" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "f1,1" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "alock3" from 2, box 0
+					Mesage Sent 2 to outPktHdr.to: 2,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "b2" from 2, box 0
+					Mesage Sent 1 to outPktHdr.to: 2,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "ecv1" from 2, box 0
+					Mesage Sent 1 to outPktHdr.to: 2,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "g1,2" from 2, box 0
+					Server cannot process Signal request as waitloock and condition lock are not same
+					2 cannot signal for condition as condition Lock is not same as waitLock 
+					Mesage Sent -1InvalidCVLock to outPktHdr.to: 2,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+
+
+		> Client 1 Terminal O/P:
+
+					Creating a Lock
+					In Receive Message
+					Got "1" from 0, box 0
+					Lock Created, Lock Id returned by the server is : 1
+
+					Acquiring
+					In Receive Message
+					Got "1" from 0, box 0
+					Acquired Lock
+
+					Creating a CV
+					In Receive Message
+					Got "1" from 0, box 0
+					CV Created, CV Id returned by the server is : 1
+
+					Waitning on condition : 1 with lock : 1
+					In Receive Message
+
+		> Client 2 Terminal O/P:
+
+					Creating a Lock
+					In Receive Message
+					Got "2" from 0, box 0
+					Lock Created, Lock Id returned by the server is : 2
+
+					Acquiring Lock
+					In Receive Message
+					Got "1" from 0, box 0
+					Acquired Lock
+
+					Creating a CV
+					In Receive Message
+					Got "1" from 0, box 0
+					CV Created, CV Id returned by the server is : 1
+
+					Trying on Signal : 1 with lock : 2 different than what other client is waiting on
+					In Receive Message
+					Got "-1InvalidCVLock" from 0, box 0
+					Server failed to Signal for the given condition
+
+
+Negative Test 5:
+
+		> Server Terminal O/P:
+
+					Waiting for Message to be received
+					Got "alock1" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "c1" from 1, box 0
+					Server cannot process Release Lock request as Lock is not Acquired first
+					Mesage Sent -1NotLockOwner to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+
+		> Client 1 Terminal O/P:
+
+					Creating a Lock
+					In Receive Message
+					Got "1" from 0, box 0
+					Lock Created, Lock Id returned by the server is : 1
+
+					Trying to release lock with id: 1 different than what was returned by server
+					In Receive Message
+					Got "-1NotLockOwner" from 0, box 0
+					Server failed to release lock
+
+Negative Test 6:
+
+		> Server Terminal O/P:
+
+					Server Started
+					Waiting for Message to be received
+					Got "alock1" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "ecv1" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "jmv1,5" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "l1,1,100" from 1, box 0
+					Message Received: 1,1,100
+					Index: 1,value to be set: 100
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "m1" from 1, box 0
+					Mesage Sent 1 to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+					Got "k26,1" from 1, box 0
+					Server Fails to fetch value from given MV
+					Mesage Sent -1Invalid MV ID to outPktHdr.to: 1,outMailHdr.to: 0,  
+
+					Waiting for Message to be received
+
+
+		> Client 1 Terminal O/P:
+
+					Creating a Lock
+					In Receive Message
+					Got "1" from 0, box 0
+					Lock Created, Lock Id returned by the server is : 1
+
+					Creating a CV
+					In Receive Message
+					Got "1" from 0, box 0
+					CV Created, CV Id returned by the server is : 1
+
+					Creating a MV
+					In Receive Message
+					Got "1" from 0, box 0
+					MV Created, MV Id returned by the server is : 1
+
+					Setting MV to 100
+					In Receive Message
+					Got "1" from 0, box 0
+					MV set successfully.
+
+					Deleting MV
+					In Receive Message
+					Got "1" from 0, box 0
+					MV deleted successfully.
+
+					Trying to fetch value from MV which is deleted : 1
+					Sent Get monitor variable request to server...
+					In Receive Message
+					Got "-1Invalid MV ID" from 0, box 0
+					Failed to Get monitor variable value from server
+----------------------------------------------------------
+----------------------------------------------------------
+***********************************************************************************************************************************************************
+VI. Discussion:
+***********************************************************************************************************************************************************
+
+-----------------
+Parts 1 & 2
+-----------------
+Virtual Memory
+
++ Experiment expectation. 
+	We implemented the demand paging mechanism for memory management. For this we changed the implementation of the page table so that the system would use the TLB instead of the pagetable.
+	The implementation was done in a step by step process handling one condition at a time. The first condition was that the machine uses the TLB instead of the pagetable. The second one was that the IPT is used to populate the TLB instead of the page table. In third step we were not copying anything into the memory but were loading it into the memory when needed. In the 4th step we reduced the main memory size to 32 pages.
+	In order to let the machine use the memory correctly and efficiently we implemented the IPT and Swapping mechanism so that no process/ thread loses its data when not in the CPU.
+
++ User Program Level Expectation:
+	Oue expected results were seen when running the test cases for virtual memory namely the matmult and sort user programs.
+
++ Experiment result.
+	The output of the tests was as expected. Thus for matmult we got the correct result of the matrix multiplication and for sort we got the correct result after the sorting.
+
++ Explanation
+	The implementation of virtual memory was done using the concepts of Inverted page table that keeps a track of physical page to virtual page mapping for all the processes in the system. The swapping mechinism was also used to allow multiple programs to run at the same time in such a way that no one loses its data.
+
+-----------------
+Part 3
+-----------------
+RPC Mechanism: 
+
++ Experiment expectation.  (What you hope will happen.)
+	We implemented the RPC calls to provide client users a way to allocate/request for resources which are available at server and also sharing the resources with the other clients which are using the same resource by using the same name when requesting for the resource.
+	The implementations for the different system calls except Fork/Exec were designed in such a way that the client machine is waiting on receive when needed in such a way that the server delays the reply to the specific client in specially 'Wait' and 'Acquire' RPC system call by putting the message in a message queue.
+	Different validations were done at server side to provide sematic and secured data/resource sharing with all the clients.
+	
++ User Program Level Expectation:
+	Our Expected results were seen in the test cases and all the implementations were cross checked for all the conditional and parameter checking for the messages received from client machine to server machine.
+	
++ Experiment result.
+	The output received in the test cases were the expected results for the design of RPC call mechanisms implemented.
+
++ Explanation
+	The RPC calls and the messages were designed in such a way that the server can identify the type of system call/resource request the client has requested and properly check the presence as well as authenticty of the parameters required with it.
+
+***********************************************************************************************************************************************************
+VII. Anything else:
+***********************************************************************************************************************************************************
+The project helped us understand the important concept of virtual memory and TLB as well as role of IPT, Page Table and Process Table in a Operating system, where all resources are utilized to make the user feel that entire time the CPU is dedicated to its process.
+
+Many different page fault cases were experienced while programming for the Page Fault Program where we had to consider the Handle Memory full and evict a page and write it to a file. Various race conditions were faced by us and we also learned how to manage to find such race conditions and correct the program to avail these issues.
+
+It was a level up experience in total.
