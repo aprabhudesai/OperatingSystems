@@ -1,0 +1,23 @@
+
+============ Movie Theater Application ===========
+
+1. Test Case 1: Customers always take the shortest line and no 2 customers ever choose the same shortest line at the same time
+
+2. Test Case 2: Managers only read one from one Clerk's total money received, at a time
+
+3. Test Case 3: Customers do not leave a Clerk, or TicketTaker, until they are told to do so
+	 Clerks and TicketTakers do not start with another Customer until they know the current Customer has left. customer until they know that the last Customer has left their area
+
+4. Test Case 4: Managers get Clerks off their break when lines get too long
+
+5. Test Case 5: Total sales never suffers from a race condition
+
+6. Test Case 6: Customer groups always move together through the theater
+
+7. System Test: Tests the Entire System
+
+8. EXIT
+
+Please enter your choice: 
+
+Cleaning up...

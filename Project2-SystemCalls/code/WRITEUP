@@ -1,0 +1,788 @@
+------------------------------------------------------------------------------------------------------------------
+Title : Writeup for Project 1(Thread Synchronization - Movie Theater Simulation), Fall 2011
+------------------------------------------------------------------------------------------------------------------
+---------------------------
+Date Submitted : 09/19/2011
+---------------------------
+-------------------------------------------------------------------------------------------------
+ Group Num 51:		Name				Email				Student ID
+-------------------------------------------------------------------------------------------------
+			Aniket Zamwar			zamwar@usc.edu			1488561698
+			Abhishekh Prabhudesai	prabhude@usc.edu		4722594988 
+			Javed Lalani			jlalani@usc.edu			6606908318 
+--------------------------------------------------------------------------------------------------
+
+                                      
+***********************************************************************************************************************************************************
+I. Requirements:
+***********************************************************************************************************************************************************
+-------------------------------------------------
+The two parts of the project are as::
+-------------------------------------------------
+-----------------------------------------------------------
+Part 1)Implementation of Locks and Condition Variables.
+-----------------------------------------------------------
+LOCKS are used to enforce the rules for mutual exclusion and CONDITION VARIABLES have to be used with monitors to avoid race conditions between different threads. Monitor Variables are used to implement proper sequencing of execution amongst interdependent threads. Before accessing any shared data, the thread has to acquire the lock and any thread can release the lock if it has acquired the lock before. For all threads trying to acquire a lock which is acquired by other threads wait in Lock Wait Queue to get the lock. Each Lock gives access to Condition Variable associated to that lock which is used to check for sequencing of the thread. The condition variables in nachos are implemented using the Mesa semantics.  
+
+In part 1, we need to code the Locks and Condition Variables in such a way that they can be used to overcome the race condition while accessing mutual exclusive data whose access in random order by different threads can lead to uncertain results. So, Lock is implemented which is acquired by a thread before accessing the shared resource which can lead to race condition. Therefore, atomicity of a operation on shared data is ensured by use of Locks. But, most of the times we need proper sequence of actions by each thread accessing the shared resources which is not yet ensured by use of locks. Therefore, we make use of Condition Variables and Monitor Variables which provide support to proper sequencing of actions on shared resource by different threads.
+
+How it works?
+Locks: Locks have 2 entities: one is "lockOwner" track of lock owner owning the lock and another is waiting queue to keep a track of threads requesting for lock when it is already acquired by another thread. Locks have 2 functions: "Acquire" which is used to make lock avaiable to a specific thread on request if it is not acquired by any other lock or put the requester thread into the wait queue of Locks if lock is being used by other thread, and "release" helps to reinitialize the lock owner to NULL if no thread present in wait Queue or if thread is available in wait queue then it is removed from queue and made the lock owner and put into scheduler ready to run for it's execution.
+
+Condition Variables: Condition Variables also consists of 2 entities: one is "waitLock" which stores value of lock when any thread with the lock is waiting for some condition to occur for sequencing and another is waiting queue which stored the threads waiting on same "waitLock" on some condition to occur.
+Monitor Variables are used to implement and check the different sequencing conditions and respectively the thread calls "wait" or "signal" functions on Condition Variables.
+
+---------------------------------------
+Part 2)Movie Theater Simulation
+---------------------------------------
+In part 2 movie theater system needs to be simulated using the locks and condition variables implemented in the first part.
+Interaction Entities: headCustomer, customerGroupMember, ticketClerk, ticketTaker, concessionClerk, theaterManager, movieTechnician.
+
+Sequence of Interactions in Movie theater simulation are as under:
+
+1. Head Customer:
+headCustomer --------->	(books tickets)		--> 	ticketClerk
+headCustomer --------->	(informs)			--> 	groupMembers about tickets booked
+headCustomer --------->	(takes food order from)	--> 	groupMembers
+headCustomer --------->	(orders food)		--> 	concessionClerk
+headCustomer --------->	(informs)			--> 	groupMembers about food order taken
+headCustomer --------->	(waits in lobby)		--> 	for "MovieStaring" Signal from Manager
+headCustomer --------->	(gets)			--> 	"MovieStaring" Signal from Manager
+headCustomer --------->	(submits tickets)		--> 	to ticket taker after getting in line
+headCustomer --------->	(informs)			--> 	groupMembers about tickets submitted and can now enter the movie theater room
+headCustomer --------->	(waiting)			--> 	for movie to START (waiting for movie start signal from Movie Technician)
+headCustomer --------->	(movie START signal)	--> 	received from Movie Technician
+headCustomer --------->	(waiting)			--> 	for movie to get OVER (waiting for movie start signal from Movie Technician)
+headCustomer --------->	(movie START signal)	--> 	received from Movie Technician
+headCustomer --------->	(waits)			--> 	for all group members to RE-GROUP inside Theater Room
+headCustomer --------->	(exits)			--> 	Theater Room when all group members REGROUPED
+headCustomer --------->	(may go to)			--> 	toilet
+headCustomer --------->	(exits)			--> 	Theater
+
+2. Ticket Clerk: each ticket Clerk also shares the tickets sold amount figure with manager on regular basis.
+
+ticketClerk --------->	(goes on BREAK)	--> 	if Manager has asked to do so
+ticketClerk --------->	(comes OFF Break)	--> 	if received signal from Manager and then make it's NOT_BUSY
+ticketClerk --------->	(checks)		--> 	if any customer in line(if no one in line makes itself NOT_BUSY)
+ticketClerk --------->	(interacts with)	--> 	customers in line for ticket booking
+
+3. Concession Clerk: each Concession Clerk Also shares the Food sold amount figure with manager on regular basis.
+
+concessionClerk --------->	(goes on BREAK)	--> 	if Manager has asked to do so
+concessionClerk --------->	(comes OFF Break)	--> 	if received signal from Manager and then make it's NOT_BUSY
+concessionClerk --------->	(checks)		--> 	if any customer in line(if no one in line makes itself NOT_BUSY)
+concessionClerk --------->	(interacts with)	--> 	customers in line for Food booking
+
+4. Ticket Taker:
+
+ticketClerk --------->	(goes on BREAK)		--> 	if Manager has asked to do so
+ticketClerk --------->	(comes OFF Break)		--> 	if received signal from Manager and then make it's NOT_BUSY
+ticketClerk --------->	(checks)			--> 	Manager has given "MOVIE_STARTING" signal
+ticketClerk --------->	(checks)			--> 	if any customer in line(if no one in line makes itself NOT_BUSY)
+ticketClerk --------->	(interacts with)		--> 	customers in line for to accept their tickets
+ticketClerk --------->	(rejects)			--> 	customer if there is no more space in the theater
+ticketClerk --------->	(shares theater Full)	--> 	info with Manager
+ticketClerk --------->	(goes to NOT_Accepting)	--> 	state if theater is full
+
+5. Movie Technician:
+
+movieTechnician ---------> (waits for START MOVIE signal)	--> 	from Manager to Start Movie
+movieTechnician ---------> (signals MOVIE OVER)			--> 	to all customers waiting in theater to watch movie
+
+6. MANAGER:
+
+	a. Manager and Ticket Clerk:
+		- Manager asks Ticket Clerk to go ON_BREAK and come OFF_BREAK on certain conditions
+		- Manager accesses Ticket Clerk's ticket Sold amount details
+
+	b. Manager and Concession Clerk:
+		- Manager asks Concession Clerk to go ON_BREAK and come OFF_BREAK on some conditions
+		- Manager accesses Concession Clerk's ticket Sold amount details
+
+	c. Manager and Head Customers waiting in Theater Lobby after booking food:
+		- Manager signals these customers about "MOVIE STARTING", so that they can submit tickets to Ticket Taker and get inside theater hall
+	
+	d. Manager and Ticket Taker:
+		- Manager asks Ticket Taker to go ON_BREAK and come OFF_BREAK on certain conditions
+		- Manager signals these customers about "MOVIE STARTING", to start accepting the tickets and allow entering customers inside theater hall
+
+	e. Manager and Movie Technician:
+		- Manager checks (previous movie is over and all customers accepted by ticket taker have entered the theater hall) and signal movie Manager to start movie
+	
+Manager checks if all customers coming to theater has exited the theater and then ends all work.
+
+***********************************************************************************************************************************************************
+II. Assumptions:
+***********************************************************************************************************************************************************
+
+Part-1:
+	1. If Lock is not owned by the Thread and Thread calls signal, wait or broadcast, then Error Message is prompted on the terminal to user.
+	2. MESA Style Monitors are implemented.
+
+Part-2:
+
+1. All Ticket Clerk, Concession Clerk, Ticket Taker donot go ON_BREAK, atleast one is OFF_BREAK.
+2. Head Customer Allocates seats to Group Members.
+3. Maximum Group Size: 1-5
+4. If any one ticket taker cannot adjust a Group in the Theater Hall, it informs Manager that Theater is Full.
+5. Ticket Clerk is always collecting the tickets, except when it is told to go ON_BREAK by Manager.
+6. The Manager keeps a count of the total number of customers sitting in the theater. Only when the total number of tickets accepted by the ticket takers and the total numbers of customers sitting in the theater becomes equal, he signals the movie technician to start the movie.
+7. When a ticket clerk/ concession clerk/ ticket taker comes off break, the manager signals the customer in the respective line to start the getting into line activity again.
+8. Maximum number of Ticker clerks is 5.
+9. Maximum number of Concession Clerks is 5.
+10. Maximum number of ticket takers is 3.
+11. When a ticket clerk/ concession clerk/ ticket taker goes on break, he signal all the customer in his line to start the getting into line activity again.
+12. Group members are waiting in the lobby until their head customer gives tickets to ticket taker and they are accepted inside the theater hall.
+13. When ticket clerk is interacting with any entity all the group customers have to waiting in the lobby.
+
+***********************************************************************************************************************************************************
+III. Design:
+***********************************************************************************************************************************************************
+--------------------------------------
+Part-1
+--------------------------------------
+Design and implementation for Part-1: Lock and Condition
+
+a. Lock:
+	For Implementation of Lock the Lock Class declared and defined in synch.hh and synch.cc resp. are modified.
+	Logic: Lock class is used to enforce mutual exclusion when two threads need to access sharing data critical region. Lock is acquired using 'Acquire' Function and released using 'Release' function. A thread needs to acquire the lock before modifying or accessing critical section. A lock can be acquired and released by the same thread. If a thread tries to acquire a lock which is already acquired by another thread, then the current thread goes into the wait queue of the lock and put to sleep and cannot access the lock until removed from wait queue by lock owner. When thread owning the lock finishes the work in critical section, it must release the lock for use of other thread members to the critical section. When lock owner thread calls lock "Release" it checks if any thread waiting in wait queue for the lock, if no thread is there in wait queue then it makes "lockowner = Null" for another thread which may need lock later, else if thread is there in waitqueue then remove that thread from queue, make that thread as lock owner and remove that thread from sleep state by putting it to scheduler run queue. Inside the Acquire and Release Function, first line is to disable interrupts and last line is enable interrupts, to confirm atomocity of operation when contect switch takes place.
+	
+	Algorithm - Lock Aquire:
+		Lock Class has 3 Variables: lockQueue, lockOwner(Default NULL), lockStatus(Default FREE)
+
+		Start Lock Acquire Function
+			Disable Interrupts
+			If lockOwner == currentThread then
+				Enable Interrupts
+				return;
+			end-if			
+			If lockStatus is FREE then
+				lockStatus = BUSY;
+				lockOwner = currentThread;
+			else
+				Add currentThread to lockQueue
+				Put currentThread to Sleep
+			end-if
+			Enable Interrupts
+		End Lock Acquire Function
+	_______________________________________________
+	Algorithm - Lock Release:
+		Lock Class has 3 Variables: lockQueue, lockOwner(Default NULL), lockStatus(Default FREE)
+
+		Start Lock Release Function
+			Disable Interrupts
+			If lockOwner != currentThread then
+				//lock releasing Thread is not the lockOwner				
+				Enable Interrupts
+				return;
+			end-if			
+		If lockQueue is EMPTY then
+				lockStatus = FREE;
+				lockOwner = NULL;
+			else
+				Thread *nextThread = Remove Thread from Queue;
+				scheduler -> ReadyToRun(nextThread);
+				make nextThread the lockOwner
+			end-if
+			Enable Interrupts
+		End Lock Acquire Function
+	_______________________________________________
+b. Conditon:
+	Condition Class is required to implement sequencing between different threads so that race condition can be avoided. Conditon Variables are used for synchronization between different threads trying to access the critical section, but it's also important that it is being accessed in proper order so that there is some cetainity of flow. Two threads need to interact with each other using the functions Wait and Signal, Broadcast of same Condition variable after acquiring the lock for critical section. When a thread goes to wait, it is put to sleep, but before it is put to sleep it needs to release the lock so that other thread on which current thread is dependent can do the required task. Signal Method wakes up the sleeping thread in wait.
+	Lock has to be given to Wait/BroadCast/Signal methods of Condition Class.
+
+	Algorithm - Condition Wait:
+		Condition Class has 3 Variables: condWaitQueue, waitLock(Default NULL)
+
+		Start Condition Wait Function(Lock *conditionLock)
+			Disable Interrupts
+			If currentThread not owner of conditionLock then
+				//not lock owner so cannot wait : Illegal				
+				Enable Interrupts
+				return;
+			end-if			
+			If conditionLock is Null then
+				//no conditionLock so cannot wait : Illegal				
+				Enable Interrupts
+				return;
+			if			
+			end-if	
+			if waitLock == NULL
+				waitLock = conditionLock
+			end-if		
+			if waitLock != conditionLock
+				//Condition Lock not same as Wait Lock
+				Enable Interrputs
+				return
+			end-if
+			Release conditionLock before going to sleep
+			add currentThread to condWaitQueue
+			currentThread is put to sleep
+			Re-Acquire conditionLock after coming off Sleep
+			Enable Interrupts
+		End Condition Wait Function
+	_______________________________________________
+
+	Algorithm - Condition Signal:
+
+		Start Condition Signal Function(Lock *conditionLock)
+			Disable Interrupts
+			If currentThread not owner of conditionLock then
+				//not lock owner so cannot wait : Illegal				
+				Enable Interrupts
+				return;
+			end-if			
+			If conditionLock is Null then
+				//no conditionLock so cannot wait : Illegal				
+				Enable Interrupts
+				return;
+			if			
+			end-if	
+			if CondWaitQueue is Empty
+				Enable Interrupts
+				return;
+			end-if		
+			if waitLock != conditionLock
+				//Condition Lock not same as Wait Lock
+				Enable Interrputs
+				return
+			end-if
+			Remove one Thread from condWaitQueue
+			Add that waitqueue thread to scheduler
+			if condWaitQueue isEmpty
+				waitLock = NULL
+			end-if
+			Enable Interrupts
+		End Condition Signal Function
+	_______________________________________________
+	Algorithm - Condition Broadcast:
+
+		Start Condition Broadcast Function(Lock *conditionLock)
+			while(!(condWaitQueue -> IsEmpty())){
+				Signal(conditionLock);
+			}
+		End Condition Broadcast Function
+	_______________________________________________
+
+--------------------------------------
+Part-2
+--------------------------------------
+Design and implementation for Part-2: Simulation of Movie Theater
+
+------------------------------------------------------------------------
++ Head Customer with Employees like Ticket Clerk, and Concession Clerk:
+------------------------------------------------------------------------
+	employee = ticketClerk, concessionClerk	
+	Logic for interaction with all the above employees is same. So, Algorithm is same.
+	Data Structures: 
+		Lock:		employeeLineLock : This lock is used to decide to enter a line to book tickets.
+		Condition:	employeeLineLockCV[] : This Condition Variable is used if employee is busy with other head customer and so needs to wait in line to start with interation
+    Monitor Variables:	employeeLineCount[] : This has value of number of head customers waiting in line to have interaction with employee
+				empState[] = BUSY or NOT_BUSY : this state is set to BUSY if employee is interacting with head customer and NOT_BUSY if free.
+		
+		Lock:		employeeLock[] : This lock is used while customer is interacting with employee
+		Condition:	employeeCV[] : this condition variable is used for interaction b/n customer and employee
+    Monitor Variables:  numberOfTicketsTC[TCSize] : Head Customer uses this to share the number of tickets to be booked with the Ticket Clerk
+				FoodOrder[CCSize]: Head Customer 
+
+	HeadCustomer Algorithm:
+		start
+		employeeLineLock -> Acquire;
+		for each employee Find NOT_BUSY employee
+		if no NOT_BUSY Employee{
+			find shortest link employee line and 
+			get in the line and increment the line count
+			wait on employeeLineLockCV
+		}
+		release employeeLineLock
+		acquire employeeLock for interaction
+		share information in Monitor Variables 
+		employeeCV -> signal  //inform employee about Food Order or number of tickets
+		employeeCV -> wait    //wait for reply from employee of amount to be payed
+		employeeCV -> signal  //pays amount
+		employeeCV -> wait //gets Food or Tickets
+		hasTickets[] = BOOKED // this monitor variable is used to inform group members about tickets being booked
+		release employeeLock for interaction
+				
+		end	
+		
+	Ticket Clerk or Concession Clerk: 
+		start:		
+		employeeLineLock -> Acquire;
+		if any customer in line{
+			decrement line count;
+			Make itself BUSY
+			Signal on employeeLineLockCV
+		}
+		else
+			Make itself NOT_BUSY
+		end else
+		acquire employeeLock for interaction
+		release line lock - employeeLineLock
+		employeeCV -> wait // wait for information from customer
+		employeeCV -> signal //inform the amount to be paid by customer
+		employeeCV -> wait // wait to accept the payment
+		employeeCV -> signal //give Tickets or Food to customer
+		release interaction lock employeeLock
+		end
+-------------------------------------
++ Head Customer with Ticket Taker
+-------------------------------------
+	Data Structures:
+		Variables for Line:
+		Lock: 		ticketTakerLineLock   //used to get in the line of Ticket Taker
+		Condition: 		ticketTakerLineCV[MAX_TT]  //Condition Variable for Ticket Taker line
+ 		Monitor Variable: ticketTakerLineCount[MAX_TT]
+					ticketTakerState[MAX_TT]
+		Variables for Interaction:
+		Lock: 		ticketTakerLock[MAX_TT];
+		Condition: 		ticketTakerCV[MAX_TT];
+		Monitor Variable:	numberOfTicketsForTT[MAX_TT] = {0};
+					acceptMessage[MAX_TT]={0};
+	
+		HeadCustomer Algorithm:
+			start
+				employeeLineLock -> Acquire;
+				for each employee Find NOT_BUSY employee
+				if no NOT_BUSY Employee{
+					find shortest link employee line and 
+					get in the line and increment the line count
+					wait on employeeLineLockCV
+				}
+				release employeeLineLock
+				acquire employeeLock for interaction
+				share information in Monitor Variables 
+				employeeCV -> signal  //inform employee about number of tickets to enter theater
+				employeeCV -> wait    //wait for reply from employee of amount to be payed
+				if(AcceptMessage == Positive){
+					release employeeLock for interaction
+					Acquire Lock with Group members
+					Inform Group members about Tickets accepted by Ticket Taker 
+					release Lock
+					Enter Movie Theater
+					Wait for movie to start // signal from Movie Technician
+				}
+				else if(AcceptMessage == Negative){
+					release employeeLock for interaction
+					Acquire lock to wait in Lobby
+					wait in lobby until next movie start signal is not received from Manager
+				}
+			end	
+		
+		Ticket Taker: 
+			start:		
+				employeeLineLock -> Acquire;
+				if any customer in line{
+					decrement line count;
+					Make itself BUSY
+					Signal on employeeLineLockCV
+				}
+				else
+					Make itself NOT_BUSY
+				end else
+				acquire employeeLock for interaction
+				release line lock - employeeLineLock
+				employeeCV -> wait // wait for information from customer
+				if(numberofTickets of Group + totalAcceptedSeats is more that totalSeats accomodable in Theater){
+					Acquire Lock with Manager					
+					acceptMessage = Negative
+					employeeCV -> signal //inform customer about tickets accepted or not
+					release interaction lock employeeLock
+					SeatsFullFlag[current Ticket Taker] = 1 // to inform Manager that Ticket Taker cannot accomodate any more customers, Monitor Variable shared with Manager
+					wait for signal from Manager for next Movie start
+				}
+				else{
+				 	AcceptMessage = Positive
+					employeeCV -> signal //inform customer about tickets accepted or not
+					release interaction lock employeeLock
+				}
+			end		
+
+----------------------------------------------
++ Movie Technician + 
+----------------------------------------------
+	Interaction of Movie Technician with Manager to start a movie and inform customers when movie Ends
+
+			while(all customers have not exited){
+				Acquire MovieTechManagerLock
+				if no command from Manager to start movie	
+					wait on MovieTechManagerDV
+				end if
+				
+				stimulate movie using Yield
+				
+				Acquire MovieTechLock // this lock is shared with Customers sitting in movie theater watching movie
+				movieFinishState = OVER
+				movieTechCV Broadcast //signal all customers that movie is over
+				release movieTechlock
+				
+				release movieTecHManagerLock
+
+			}
+
+----------------------------------------------
++ Manager
+----------------------------------------------
+
+	-----------------------------------------------------------------------------------
+	To signal start of Movie to Movie Technician:
+	-----------------------------------------------------------------------------------
+		ttStateLock -> Release(); //this lock is shared with Ticket Taker
+			//ttstate lock is acquired to find out the count of total Accepted Seats
+		movieTechLock -> Acquire();  // Manager Acquires this lock to check if all accepted customers have occupied the seats in theater hall
+		mgrTTCustomerCommonLock -> Acquire(); //Manager Acquires this lock to change state of movieManagerState
+
+		if(totalOccupiedSeats == totalAcceptedSeats && (movieFinishState == OVER || movieFinishState == FIRST_MOVIE) && (seatFullMessage == 1 || remainingCount == totalAcceptedSeats) && totalAcceptedSeats!=0)
+		{	
+			movieFinishState = NOT_OVER;
+			movieManagerState = NOT_STARTING; //Manager changes this state as manager will signal movie technician to start movie
+				//and so this state is made NOT_STARTING so no more customers are accepted by Ticket Taker and cutomers wait in Lobby for next movie
+			movieTechManagerCV -> Signal(movieTechManagerLock);		
+		}
+		mgrTTCustomerCommonLock -> Release();
+		movieTechLock -> Release();
+		ttStateLock -> Release();
+
+	-----------------------------------------------------------------------------------
+	To Signal Customers in lobby and Ticket Taker that movie is going to start Signal
+	-----------------------------------------------------------------------------------
+	Code:
+		movieTechManagerLock -> Acquire(); //acquired to access totalOccupiedSeats
+		ttStateLock -> Acquire();	//acquired to access seatFullMessage and lineTicketMessage
+		movieTechLock -> Acquire();   //required to access movieFinishState
+		movieSeatManagerLock -> Acquire(); //required to access totalAcceptedSeats
+		mgrTTCustomerCommonLock -> Acquire(); // required to broadcast all TT start collecting tickets and customers to get in line of TT
+		ticketTakerLineLock -> Acquire(); //linelock acquired to reset lineTicketmessage used to send customers wait in lobby signal
+
+		if(movieFinishState == FIRST_MOVIE)
+		{
+			seatFullMessage = 0;
+			movieManagerState = STARTING;
+			for(int k=0; k< MAX_TT ;k++)
+			{
+				lineTicketMessage[k] = 0; // reinitialize to Zero as again new movie is starting
+			}
+			
+			mgrTTCustomerCommonCV -> Broadcast(mgrTTCustomerCommonLock); //signal customers and Ticket Taker to start accepting tickets
+
+		}
+		else if(totalMovieRoomExitCount == totalAcceptedSeats && movieFinishState == OVER && totalAcceptedSeats!=0)
+		{
+			movieSeatLock -> Acquire();
+				Reinitialize Seats to FREE
+			movieSeatLock -> Release();
+			//As movie is over and new movie is starting
+			totalOccupiedSeats = 0; //reinitialize totalOccupiedSeats to 0 for next movie show
+			remainingCount = remainingCount - totalAcceptedSeats; // remaining count is the number of customers remaining to watch movie
+			totalAcceptedSeats = 0;	//As Ticket taker will again start accepting tickets Total Accepted Seats initialized to 0
+			seatFullMessage = 0; // as movie is over and Ticket Taker again starts to accept tickets, all seats are made free in movie theater
+			totalMovieRoomExitCount = 0; //As all customers from previous movie show have exited, it is re-initialized to zero
+
+			movieManagerState = STARTING; // change the state to Starting
+			for(int k=0; k< MAX_TT ;k++)
+			{
+				lineTicketMessage[k] = 0;
+			}
+			mgrTTCustomerCommonCV -> Broadcast(mgrTTCustomerCommonLock);
+				// broadcast all Ticket takers and customers waiting in lobby the movieManagerState which informs them about next movie is starting
+		}
+		//Remove all locks		
+		ticketTakerLineLock -> Release();
+		mgrTTCustomerCommonLock -> Release();
+		movieSeatManagerLock -> Release();
+		movieTechLock -> Release();
+		ttStateLock -> Release();
+
+	-----------------------------------------------------------------------------------
+	To send Concession Clerk OffBreak and OnBreak
+	-----------------------------------------------------------------------------------
+	Same logic is used to send Ticket Clerk and Ticket Taker to send on Break and Off Break
+	Note: CC: ConcessionClerk
+		1. there is atleast one Clerk OFF_BREAK
+		2. if there are less than 3 customers in line and atleast one clerk is not ON_BREAK
+			then we send Clerk ON_BREAK and inform the customers in that line to move to other line
+		3. if there is atleast one clerk with more than five customers, then we bring other ON_BREAK
+		clerk OFF_BREAK and inform the customers about the new Clerk bought OFF_BREAK.
+	
+	Below is the Code: 
+
+		int CCCounter = 0; //Local variable
+		int CCIndex[5] = {-1}; //Local variable
+		concessionClerkManagerBreakLock -> Acquire(); //lock to interact with CC for OnBreak and OffBreak
+
+		for(int i = 0;i < MAX_CC; i++) // For all Concession Clerk
+		{
+			concessionClerkLineLock -> Acquire();  //acquire line lock of concession clerk to access line count
+			random = rand() % 10;//20% of the time we want to send CC ON_BREAK
+			
+			//if present clerk is on break, if customers in line less than 3 and atleast one customer is there not ON_BREAK then
+			if(((CCBreakState[i] == OFF_BREAK) && (concessionClerkLineCount[i] < 3 && concessionClerkBreakCount < 4)) && (random < 2))
+			{
+				managerCustomerCCFlag[i] = 1; // Monitor Variable to inform Customers about the Clerk going on Break
+				concessionClerkBreakCount++;	//Monitor variable which holds counter for break count of concession clerk
+				CCBreakState[i] = ON_BREAK;	//change the state of clerk to ON_BREK
+				concessionClerkLineCount[i] = 0;	//change the line count of clerk line to 0, as all customers move to other line
+			
+				concessionClerkLineCV[i] -> Broadcast(concessionClerkLineLock);//inform customers about the clerk going on break
+				concessionClerkLineLock -> Release();//release line lock after broadcast
+				continue;
+			}
+			else if(CCBreakState[i] == ON_BREAK)
+			{
+				//Find clerks with more than five customers in line
+				for(int j=0; j< MAX_CC; j++)
+				{
+					if((j != i) && (concessionClerkLineCount[j] > 2) && (concessionClerkBreakCount > 0))
+					{
+						printf("\nCC[%d] has line count > 5\n",j);
+						CCIndex[CCCounter] = j;
+						CCCounter++;
+					}
+				}
+				//if any clerk with more than 5 customers in line then call ON_BREAK clerk -> OFF_BREAK
+				if(CCCounter > 0)
+				{
+					concessionClerkBreakCount--;
+					CCBreakState[i] = OFF_BREAK;
+					concessionClerkState[i] = CCNOT_BUSY;
+					for(int k=0 ; k < CCCounter; k++)
+					{
+						managerCustomerCCFlag[CCIndex[k]] = 2; // this message tells customer that as there is huge line in present clerk
+						//a new clerk is bought OFF_BREAK
+						concessionClerkLineCount[CCIndex[k]] = 0;
+						printf("\nAsk all customers in CC[%d] line to restart line entry\n",CCIndex[k]);
+						/inform customers about the message
+						concessionClerkLineCV[CCIndex[k]] -> Broadcast(concessionClerkLineLock);
+					}
+					//inform clerk to come off_BREAK
+					concessionClerkManagerBreakCV[i] -> Signal(concessionClerkManagerBreakLock);
+				}
+			}
+			concessionClerkLineLock -> Release(); // release lock as it is acquired again in for loop
+		}
+
+***********************************************************************************************************************************************************
+IV. Implementation:
+***********************************************************************************************************************************************************
+
++ Files Modified
+	- nachos-csci402/code/synch.h
+	- nachos-csci402/code/synch.cc
+	- nachos-csci402/code/main.cc
+
++ Files added
+	- No Files were added
+
++ Data Structures added, and the file they were added to.
+	Locks, Condition Variables, Monitor Variables(integer arrays, enums) were declared in threadtest.cc to implement Movie Theater Simulation
+	- nachos-csci402/code/threadtest.cc
+
++ Data Structures modified, and the file they were added to.
+	----------------------------------------------------------------------------
+	- lockQueue, lockOwner and LockStatus: were added to Class Lock in synch.h
+	----------------------------------------------------------------------------
+				class Lock {
+					public:
+						Lock(char* debugName);  		// initialize lock to be FREE
+    						~Lock();					// deallocate lock
+    						char* getName() { return name; }	// debugging assist
+
+						void Acquire(); // these are the only operations on a lock
+    						void Release(); // they are both *atomic*
+
+    						bool isHeldByCurrentThread();		// true if the current thread
+												// holds this lock.  Useful for
+												// checking in Release, and in
+												// Condition variable ops below.
+
+  					private:
+    						char* name;					// for debugging
+    												// plus some other stuff you'll need to define
+
+    						List *lockQueue;  //queue for threads waiting for lock
+    						Thread *lockOwner; //current thread who owns the lock
+    						LockStatus lockStatus;
+				};
+	-----------------------------------------------------------------------
+	-  waitLock, condWaitQueue: were added to Class Condition in synch.h
+	-----------------------------------------------------------------------
+			class Condition {
+  					public:
+    						Condition(char* debugName);		// initialize condition to 
+												// "no one waiting"
+    						~Condition();				// deallocate the condition
+    						char* getName() { return (name); }
+    
+    						void Wait(Lock *conditionLock); 	// these are the 3 operations on 
+												// condition variables; releasing the 
+												// lock and going to sleep are 
+												// *atomic* in Wait()
+    						void Signal(Lock *conditionLock);   // conditionLock must be held by
+    						void Broadcast(Lock *conditionLock);// the currentThread for all of 
+												// these operations
+
+  					private:
+    						char* name;
+    						// plus some other stuff you'll need to define
+
+    						Lock *waitLock; //lock for which current condition is applied
+    						List *condWaitQueue; // queue to maintain thread waiting for the condition
+
+			};
+	---------------------------------------------------------------------
+		Class Lock: Modified in nachos-csci402/code/synch.h
+		Class Condition: Modified in nachos-csci402/code/synch.h
+	---------------------------------------------------------------------
+
++ Functions added and in which file
+	File Name: nachos-csci402/code/threadtest.cc
+		Functions Added: 
+			void interactionForTicketsWithTC(CustomerData * current)
+			void interactWithConcessionClerksToOrderFood(CustomerData *current)
+			void interactWithTicketTakerToGiveTickets(CustomerData *current)
+			void allocateSeats(int minRow, int maxRow, int totalMemCount,int grpNo)
+			void interactWithGroupMembersForSeatAllocation(CustomerData *myData)
+			void movieSeatAllocation(CustomerData *myData)
+			void customersExit(CustomerData *myData)
+			void watchMovieAndExit(CustomerData *myData)
+			void interactWithGroupMembersForFoodOrder(CustomerData *myData)
+			void customerGroupMember(int currentGM)
+			void headCustomer(int currentHC)
+			void concessionClerk(int myIndex)
+			void ticketTaker(int myIndex)
+			void ticketClerk(int myIndex)
+			void randomYield(int waitCount)
+			void movieTechnician(int noUse)
+			void theaterManager(int noUse)
+			void movieTheater(void)
+			
+		- Functions used to implement Test Cases 1 to 5:
+			void concessionClerkTotalSale(int myIndex)
+			void ticketClerkTotalSale(int myIndex)
+			void interactWithCCTotalSale(CustomerData *current)
+			void interactWithTCTotalSale(CustomerData *current)
+			void determineTotalSales()
+			void ticketClerkInteract(int myIndex)
+			void headCustomerInteract(int currentHC)
+			void interactWithAClerkOrTT()
+			void theaterManagerReadAmount(int myIndex)
+			void ticketClerkReadAmount(int myIndex)
+			void headCustomerBookTickets(int currentHC)
+			void readTotalAmountFromClerk()
+			void ticketClerkGetIntLine(int myIndex)
+			void getInTCLine(CustomerData *current)
+			void customerGetIntoLine()
+				
++ Functions modified and in which file
+	File Name: nachos-csci402/code/synch.cc
+		Functions Modified: 
+			- Class Lock::Acquire()
+			- Class Lock::Release()
+			- Class Condition::Wait(Lock*)
+			- Class Condition::Signal(Lock*)
+			- Class Condition::Broadcast(Lock*)
+			- Class Lock::isHeldByCurrentThread()
+
+	File Name: nachos-csci402/code/threadtest.cc
+		Function Modified:
+			- TestSuite()
+		Functions Added: 
+		void concessionClerkTotalSale(int myIndex)
+		void ticketClerkTotalSale(int myIndex)
+		void interactWithCCTotalSale(CustomerData *current)
+		void interactWithTCTotalSale(CustomerData *current)
+		void determineTotalSales()
+		void ticketClerkInteract(int myIndex)
+		void headCustomerInteract(int currentHC)
+		void interactWithAClerkOrTT()
+		void theaterManagerReadAmount(int myIndex)
+		void ticketClerkReadAmount(int myIndex)
+		void headCustomerBookTickets(int currentHC)
+		void readTotalAmountFromClerk()
+		void ticketClerkGetIntLine(int myIndex)
+		void getInTCLine(CustomerData *current)
+		void customerGetIntoLine()
+
+***********************************************************************************************************************************************************
+V. Testing:
+***********************************************************************************************************************************************************
+
++ How to test
+	
+	For running the test cases, execute the "nachos" command with the following two options:
+	
+	1. nachos -T : tests the synchronization among the threads provided in the TestSuite function.
+		
+	2. nachos -P2 : runs the menu to run the different test cases for the Movie Theater Application.
+	
+		- This will display the menu for executing all the test cases. After one test case is complete execute "nachos" command for the next test case and select the required option.
+		- The test cases from 1 to 5 are the repeatable test cases which give the same output every time they are run. Test case 6 requires user input. Following are the test cases and their description:
+		- For test case 6 the user has to input number of customers, number of ticket clerks, number of concession clerks and number of ticket takers. Below are the range of values that the user can provide:
+			number of groups -> any number
+			number of ticket clerks -> 0 to 5
+			number of concession clerks -> 0 to 5
+			number of ticket takers -> 0 to 3
+
++ Test Output
+
+	When you run "nachos -T": 
+		The output obtained shows that mutual exclusion and sequencing is achieved by using locks, condition variables and monitor variables. All the threads created, whether randomly or sequentially, acquire and release the locks in a mutually exclusive manner. Also using condition and monitor variables they are able to access the locks with proper sequencing.
+
+	When you run "nachos -P2":
+		This displays a menu for selecting the test case to run. There are 7 options. Following is the output for each test case:
+		
+		Test Case 1: You can see that there are 20 customers and no 2 customers choose the same ticket clerk line at the same time. This shows that customers always take the shortest line, but no 2 customers ever choose the same shortest line at the same time.
+
+		Test Case 2: There are 5 ticket clerks which are serving 20 customers. Each customer orders tickets for 5 people (including himself/ herself). After the interaction between the ticket clerk and a customer is over the ticket clerk updates the total amount collected from the ticket sale. The manager reads the amount collected by the ticket sale by each ticket clerk, one at a time.This shows that managers only read one from one Clerk's total money received, at a time. 
+		
+		Test Case 3: There are 20 customers that order 5 tickets each from the ticket clerk who is serving them. The interaction shows that the customers select their ticket clerk by choosing the shortest line and wait for their turn. Once a tiket taker signals them, they go to the ticket taker and place their ticket order. The ticket taker then tells them the total amount for the tickets they ordered. The customer pays the amount and waits for the ticket taker to give the tickets. Only when the ticket taker gives them their tickets, they leave. At the same time the ticket clerk does not server the next customer until the current customer receives the tickets and leaves the queue. This shows that the Customers do not leave a Clerk, or TicketTaker, until they are told to do so. Clerks and TicketTakers do not start with another Customer until they know the current Customer has left their area. 
+
+		Test Case 4: Here you can see customers interacting with the ticket taker for their tickets. After they receive their tickets, they leave the ticket taker. The ticket taker updates the total ticket sale amount and then signals the next customer in his/ her line. All the ticket takers maintain their individual amount. The total amount collected from all the ticket takers never suffers a race condition as this amount is updated by one ticket clerk at a time with mutually exclusive access. The same is the case with concession clerks. This shows that total sales never suffers from a race condition.
+		
+		Test Case 5: Here one group member of each group orders tickets for his/ her group. Till the tickets are received the entire group waits. Once the tickets are received only then they all proceed to enter the movie theater together. After this the group may order popcorn and soda. Here too one group member places the order with the concession clerk. Till the order is not received the group members wait. After the order is received the group member who placed the order infroms all his/ her group members and then they proceed to the ticket taker line (if signalled by the manager about movie starting). Again one group member goes to the ticket taker to give the tickets while the remaining group members wait. Once the tickets are accepted the group moves inside the theater room together. After the movie is over they regroup inside the theater and only when all the group members regroup, the group leaves the theater room. The same is observed if any of the group member wants to go to the bathroom. All the group members wait till their group members arrive. Only then they proceed to exit the movie theter. This shows that Customer groups always move together through the theater.
+		
+		Test Case 6: This tests the entire system. It shows the interactions between the customers and ticket clerks, concession clerks, ticket takers and their group members. You can also see the interaction between the manager and the employees - ticket takers, concession clerks, ticket clerks and movie technician. The manager tells the customers about any new movie starting. Only then they proceed to the ticket takers. The manager checks the total amount collected from the tikect, popcorn and soda sales while executing his other tasks. He is also sends the ticket takers, concession clerks and ticket takers on break. He signals the movie technician when to start a movie.
+		
+		
+***********************************************************************************************************************************************************
+VI. Discussion:
+***********************************************************************************************************************************************************
++ Experiment expectation.  (What you hope will happen.)
+	1. All the execution of the code takes place in the mutually exclusive way.
+	2. Head Customer Gets into NON BUSY Ticket Clerk's line or shortest ticket Clerk's line
+	3. Each Head Customer interacts with ticket taker by sharing the number of tickets and paying the respective amount.
+	4. Each head customer informs group members about ticket being booked.
+	5. Each head customer successfully interacts with each group member one after the other to take popcorn and soda order.
+	6. Group Members are kept waiting until Head Customer receives the order from Concession Clerk.
+	7. Head Customer gets in shortest line or NON BUSY Concession Clerk to place the Order.
+	8. The interaction between the Head Customer and Concession Clerk takes place in a sequencial Manner.
+	9. After Food Order is done with Concession Clerk, head customer informs group members about the same.
+	10. head customer is waiting in lobby for "Movie Starting" signal from Manager and group members waiting for head customers signal of tickets submitted to Ticket Taker
+	11. Ticket taker do not colllect tickets until Manager gives "Movie Starting Signal"
+	12. After Manager gives "Movie Starting Signal", Customers start getting in Ticket Takers Line and Ticket Taker starts accepting ticket
+	13. Ticket Taker stops taking tickets from Costumer as soon as theater hall is full and costumers are sent back to lobby to wait for next movie signal from Manager
+	14. Until movie start signal is not received for ticket accepted customers, they wait inside theater for movie to start
+	14. Manager checks if all accepted tickets count of customers is same as customers occupied inside theater and then signals movie Technician to start the movie
+	15. As soon as movie start signal is received by customers inside movie theater hall, they wait for movie over signal from movie Technician
+	16. After movie is complete, movie technician informs manager and customers watching movie.
+	17. As soon as movie is over, head customer and group members of each group inside theater hall, re-group inside the theater hall and exit together.
+	18. If any of the customer exiting theater hall, wants to go to bathroom ,other group members wait and then all exit together.
+	19. The ticket clerk/ concession clerk/ ticket taker go on break. However the simulation does not show that they are coming off break.
+	+ This simulation must work for more than one movie shows and until all customers entered the theatre have exited the theater.
+
++ Experiment result.  (What actually happens.)
+	All the above expected results were obtained as expected and the program terminated after all customers watched movie and exited the theater.
+
++ Explanation:
+	All the entities are interacting with each other in a mutually excusive manner. The above mentioned assumptions and expectations can be seen in the test case results.
+	The logic for sending the ticket clerks/ concession clerks/ ticket takers on-off break is implemented but working partially. The manager is able to send them on break however unable to call them off break.
+
+
+***********************************************************************************************************************************************************
+VII. Anything else:
+***********************************************************************************************************************************************************
+Logic and concepts of Locks and Condition Variables, Monitors was understood very well while implementing the varied interactions in the project simulation. After a certain point of implementation, we were having so many Lock variables and Condition Variables in the code that sometimes it used to be confusing and we had to revise all the Lock variables and Condition Variables. Sometimes while development we experienced the race condition problem which either led to infinite looping or abrupt termination of the program. That time we revisited the written code logic and corrected the locks and variables for correct working.
+
+
+
+
