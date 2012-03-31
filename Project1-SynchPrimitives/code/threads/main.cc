@@ -56,11 +56,11 @@
 
 // External functions used by this file
 
-extern void ThreadTest(void), Copy(char *unixFile, char *nachosFile);
+//extern void ThreadTest(void), Copy(char *unixFile, char *nachosFile);
+extern void TestSuite(void), Copy(char *unixFile, char *nachosFile);
 extern void Print(char *file), PerformanceTest(void);
 extern void StartProcess(char *file), ConsoleTest(char *in, char *out);
-//extern void MailTest(int networkID);
-extern void MailTest();
+extern void MailTest(int networkID);
 
 //----------------------------------------------------------------------
 // main
@@ -86,7 +86,9 @@ main(int argc, char **argv)
     (void) Initialize(argc, argv);
     
 #ifdef THREADS
-    ThreadTest();
+    if (strcmp(*argv, "-T"))
+    	TestSuite();
+    //else ThreadTest();
 #endif
 
     for (argc--, argv++; argc > 0; argc -= argCount, argv += argCount) {
@@ -94,12 +96,11 @@ main(int argc, char **argv)
         if (!strcmp(*argv, "-z"))               // print copyright
             printf (copyright);
 #ifdef USER_PROGRAM
-		if (!strcmp(*argv, "-x")) {        	// run a user program
+        if (!strcmp(*argv, "-x")) {        	// run a user program
 	    ASSERT(argc > 1);
             StartProcess(*(argv + 1));
             argCount = 2;
-        }
-		else if (!strcmp(*argv, "-c")) {      // test the console
+        } else if (!strcmp(*argv, "-c")) {      // test the console
 	    if (argc == 1)
 	        ConsoleTest(NULL, NULL);
 	    else {
@@ -136,19 +137,10 @@ main(int argc, char **argv)
 #ifdef NETWORK
         if (!strcmp(*argv, "-o")) {
 	    ASSERT(argc > 1);
-            Delay(4); 				// delay for 2 seconds
-						// to give the user time to 
-						// start up another nachos
-            //MailTest(atoi(*(argv + 1)));
-			//client(atoi(*(argv + 1)));
-            argCount = 2;
-        }
-		if (!strcmp(*argv, "-s")) {
-	    //ASSERT(argc > 1);
             Delay(2); 				// delay for 2 seconds
 						// to give the user time to 
 						// start up another nachos
-            MailTest();
+            MailTest(atoi(*(argv + 1)));
             argCount = 2;
         }
 #endif // NETWORK

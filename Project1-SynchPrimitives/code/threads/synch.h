@@ -50,8 +50,6 @@ class Semaphore {
     
     void P();	 // these are the only operations on a semaphore
     void V();	 // they are both *atomic*
-	
-	bool isQueueEmpty();	//true if there are threads waiting in the semaphore wait queue
     
   private:
     char* name;        // useful for debugging
@@ -77,17 +75,14 @@ class Lock {
     ~Lock();				// deallocate lock
     char* getName() { return name; }	// debugging assist
 
-    int Acquire(); // these are the only operations on a lock
-    int Release(); // they are both *atomic*
+    void Acquire(); // these are the only operations on a lock
+    void Release(); // they are both *atomic*
 
     bool isHeldByCurrentThread();	// true if the current thread
 					// holds this lock.  Useful for
 					// checking in Release, and in
 					// Condition variable ops below.
 
-	bool isQueueEmpty();	//true if there are threads waiting in the lock wait queue
-	
-	bool getLockStatus();	// true if the lock is busy ; getting used
   private:
     char* name;				// for debugging
     // plus some other stuff you'll need to define
@@ -136,14 +131,14 @@ class Condition {
     ~Condition();			// deallocate the condition
     char* getName() { return (name); }
     
-    int Wait(Lock *conditionLock); 	// these are the 3 operations on 
+    void Wait(Lock *conditionLock); 	// these are the 3 operations on 
 					// condition variables; releasing the 
 					// lock and going to sleep are 
 					// *atomic* in Wait()
-    int Signal(Lock *conditionLock);   // conditionLock must be held by
-    int Broadcast(Lock *conditionLock);// the currentThread for all of 
+    void Signal(Lock *conditionLock);   // conditionLock must be held by
+    void Broadcast(Lock *conditionLock);// the currentThread for all of 
 					// these operations
-	bool isQueueEmpty();	//true if there are threads waiting in the condition variable wait queue
+
   private:
     char* name;
     // plus some other stuff you'll need to define

@@ -97,18 +97,6 @@ Semaphore::V()
     (void) interrupt->SetLevel(oldLevel);
 }
 
-bool Semaphore::isQueueEmpty()
-{
-	if(queue -> IsEmpty() == true)
-	{
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
 // Dummy functions -- so we can compile our later assignments 
 // Note -- without a correct implementation of Condition::Wait(), 
 // the test case in the network assignment won't work!
@@ -128,37 +116,13 @@ bool Lock::isHeldByCurrentThread(){
 	else return false;
 }
 
-bool Lock::isQueueEmpty()
-{
-	if(lockQueue -> IsEmpty() == true)
-	{
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
-bool Lock::getLockStatus()
-{
-	if(lockStatus == BUSY)
-	{
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
-int Lock::Acquire() {
+void Lock::Acquire() {
 	//disable interrupt to perform atomic operations in single thread
 	IntStatus oldIntStatus = interrupt -> SetLevel(IntOff);
 
 	if(isHeldByCurrentThread()){
 		interrupt -> SetLevel(oldIntStatus);
-		return -1;
+		return;
 	}
 	if(lockStatus == FREE){
 		lockStatus = BUSY;
@@ -172,10 +136,8 @@ int Lock::Acquire() {
 
 	//enable interrupts
 	interrupt -> SetLevel(oldIntStatus);
-	return 1;
 }
-
-int Lock::Release() {
+void Lock::Release() {
 	//disable interrupt to perform atomic operations in single thread
 	IntStatus oldIntStatus = interrupt -> SetLevel(IntOff);
 
@@ -183,7 +145,7 @@ int Lock::Release() {
 		printf("\n%s is not the lock owner, so it cannot release the lock\n", currentThread -> getName());
 		//enable interrupts
 		interrupt -> SetLevel(oldIntStatus);
-		return -1;
+		return;
 	}
 	if(!(lockQueue -> IsEmpty())){
 		Thread* nextQThread = (Thread *)lockQueue -> Remove();
@@ -197,7 +159,6 @@ int Lock::Release() {
 	}
 	//enable interrupts
 	interrupt -> SetLevel(oldIntStatus);
-	return 1;
 }
 
 Condition::Condition(char* debugName) {
@@ -208,16 +169,7 @@ Condition::Condition(char* debugName) {
 Condition::~Condition() {
 	delete condWaitQueue;
 }
-
-bool Condition::isQueueEmpty()
-{
-	if((condWaitQueue -> IsEmpty()) == true)
-		return true;
-	else
-		return false;
-}
-
-int Condition::Wait(Lock* conditionLock) {
+void Condition::Wait(Lock* conditionLock) {
 	//ASSERT(FALSE);
 
 	//disable interrupt to perform atomic operations in single thread
@@ -227,7 +179,7 @@ int Condition::Wait(Lock* conditionLock) {
 	if(!(conditionLock -> isHeldByCurrentThread())){
 		printf("%s thread does not has the lock", currentThread -> getName());
 		interrupt -> SetLevel(oldIntStatus);
-			return -1;
+			return;
 	}
 
 	// if conditionLock is null, then thread cannot wait, its a invalid condition
@@ -235,7 +187,7 @@ int Condition::Wait(Lock* conditionLock) {
 		printf("\nThread %s cannot wait for condition as condition lock is NULL \n",currentThread -> getName());
 		//enable interrupts
 		interrupt -> SetLevel(oldIntStatus);
-		return -1;
+		return;
 	}
 
 	//First Thread with conditionLock calling wait
@@ -247,7 +199,7 @@ int Condition::Wait(Lock* conditionLock) {
 		printf("\nThread %s cannot wait for condition as condition Lock is not same as waitLock \n",currentThread -> getName());
 		//enable interrupts
 		interrupt -> SetLevel(oldIntStatus);
-		return -1;
+		return;
 	}
 
 	//exiting the monitor before going to sleep
@@ -263,10 +215,8 @@ int Condition::Wait(Lock* conditionLock) {
 
 	//enable interrupts
 	interrupt -> SetLevel(oldIntStatus);
-	return 1;
 }
-
-int Condition::Signal(Lock* conditionLock) {
+void Condition::Signal(Lock* conditionLock) {
 	//disable interrupt to perform atomic operations in single thread
 	IntStatus oldIntStatus = interrupt -> SetLevel(IntOff);
 
@@ -274,20 +224,20 @@ int Condition::Signal(Lock* conditionLock) {
 	if(!(conditionLock -> isHeldByCurrentThread())){
 		printf("%s thread does not has the lock", currentThread -> getName());
 		interrupt -> SetLevel(oldIntStatus);
-		return -1;
+		return;
 	}
 
 	if(condWaitQueue -> IsEmpty()){
 		//enable interrupts
 		interrupt -> SetLevel(oldIntStatus);
-		return -1;
+		return;
 	}
 
 	if(waitLock != conditionLock){
 		printf("\nThread %s cannot signal for condition as condition Lock is not same as waitLock \n",currentThread -> getName());
 		//enable interrupts
 		interrupt -> SetLevel(oldIntStatus);
-		return -1;
+		return;
 	}
 
 	// remove next thread waiting in condition queue for its chance to perform mutual exclusive operations
@@ -301,21 +251,18 @@ int Condition::Signal(Lock* conditionLock) {
 
 	//enable interrupts
 	interrupt -> SetLevel(oldIntStatus);
-	return 1;
 }
-
-int Condition::Broadcast(Lock* conditionLock) {
+void Condition::Broadcast(Lock* conditionLock) {
 	//signal all thread waiting for same condition to occur
 	//example: waiting for movie to end
 
 	//Check if current thread has acquired the lock
 	if(!(conditionLock -> isHeldByCurrentThread())){
 		printf("%s thread does not has the lock", currentThread -> getName());
-		return -1;
+		return;
 	}
 
 	while(!(condWaitQueue -> IsEmpty())){
 		Signal(conditionLock);
 	}
-	return 1;
 }
