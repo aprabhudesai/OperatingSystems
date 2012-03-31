@@ -1,0 +1,66 @@
+=====================================================================================================================
+											The Operating Systems Projects:
+=====================================================================================================================
+OS Used: NACHOS (http://en.wikipedia.org/wiki/Not_Another_Completely_Heuristic_Operating_System)
+Language of Programming: C/C++
+Tested on: A solaris server @ USC
+
+1. Synchronization Primitives
+	In this project I have developed the synchronization primitives namely Locks, Condition Variables and Semaphores
+	into the OS.
+	To test the primitives thoroughly I developed an application that simulates the movie theater. Here there is the
+	movie theater staff - ticket clerks, concession clerks (sell food & soda), ticket takers (accept the movie tickets),
+	a movie technician (starts the movie)and the theater manager (coordinates the activities of the employees). It also
+	involves customers that go through the process of buying tickets from ticket clerks, buying food and soda from 
+	concession clerks, handing over the	tickets to ticket takers and then after the movie is over exiting the theater.
+	The customers come in groups of random size. While moving through the theater all the customers always travel in
+	groups and wait till all the members regroup.
+	The simulation of the movie theater was done so that 2 - 3 movies are watched by 80 - 100 customers.
+	
+2. System calls
+	In this project I have developed the system calls for:
+	- Create Lock
+	- Acquire Lock
+	- Release Lock
+	- Delete Lock
+	- Create Condition Variable
+	- Wait on a Condition Variable
+	- Signal on a Condition Variable
+	- Broadcast on a Condition Variable
+	- Delete a Condition Variable
+	- Fork System call
+	- Exec System call
+	- Exit System call
+	- WriteToConsole (printf) System call
+	- Create Semaphore
+	- Up on a Semaphore
+	- Down on a Semaphore
+	- Delete Semaphore
+	
+	The same movie theater simulation was used to test each of these system calls. Thus instead of using the primitives
+	developed in Project 1, the movie theater simulation was developed using the system calls to these primitives.
+	Additionally all the entities in the movie theater simulation were created using Fork and Exec system calls. The Exit
+	system call was used to for removing the entries of the processes from the process table. The process table was used
+	to keep a record of the processes created using the Exec system call. These processes were nothing but the movie
+	theater entities. The Fork system call was used to create multiple threads for a single process.
+
+3. Virtual Memory
+	In this project I implemented virtual memory into he uni-programmed single threaded NACHOS OS.
+	The project involved developing a page table, a TLB and a IPT. These were implemented as classes. The constraint on
+	memory was that we were allowed to use only 32 pages of memory each of 128 KB. The project also made use of the Swap
+	file that is the most important part of virtual memory. The FIFO and Random page replacement policies were used to
+	remove the unused pages from main memory.
+	The project was tested againt 2 programs: Matmult and Sort. Matmult is a matrix multiplication program that multiplies
+	2 2D arrays each of size 20 x 20. The program requires 37 pages of memory. Sort is a sorting program that sorts the
+	numbers and returns a value. It requires 42 pages of memory.
+	
+4. Distributed Operating System
+	In this project I implemented the distributed OS features into NACHOS. The project involved a bunch of servers that
+	store a set of resources - Locks, Condition Variables, Monitor Variables. The server have to maintain resources such
+	that the entire system is transprent to the clients i.e. the clients feel that there is a single server managing the 
+	resources. For this servers have to make sure that the resources are not duplicated and the access to them is done
+	in a mutually exclusive manner. Also there is proper synchronization amongst the clients who access the same resources.
+	For this I implemented TOTAL ORDERING into the servers so that each server asks all the other servers before taking
+	any decision.
+	The movie theater simulation was converted to a distributed application where each entity of the movie theater acts 
+	as a client and can request resource to any server at any time.
